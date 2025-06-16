@@ -236,45 +236,6 @@ export class ProductsController {
     };
   }
 
-  @Get(':slug')
-  @ApiOperation({
-    summary: 'Get product by slug',
-    description:
-      'Get product details by slug. Only returns active products for public access.',
-  })
-  @ApiParam({
-    name: 'slug',
-    description: 'Product slug (URL-friendly identifier)',
-    example: 'ao-thun-basic-trang',
-  })
-  @ApiOkResponse({
-    schema: {
-      allOf: [
-        { $ref: getSchemaPath(BaseResponseDto) },
-        {
-          properties: {
-            data: { $ref: getSchemaPath(ProductResponseDto) },
-          },
-        },
-      ],
-    },
-  })
-  async findBySlug(
-    @Param('slug') slug: string,
-  ): Promise<BaseResponseDto<ProductResponseDto>> {
-    // Use public method that only returns active products
-    const product = await this.productsService.findBySlugPublic(slug);
-    return {
-      message: 'Product retrieved successfully',
-      data: plainToInstance(ProductResponseDto, product, {
-        excludeExtraneousValues: true,
-      }),
-      meta: {
-        timestamp: new Date().toISOString(),
-      },
-    };
-  }
-
   @Get('sale')
   @ApiOperation({
     summary: 'Get all products on sale',
@@ -315,7 +276,7 @@ export class ProductsController {
     },
   })
   async getSaleProducts(
-    @Query() query: any,
+    @Query() query: { page?: string; limit?: string; sort?: string },
   ): Promise<PaginatedResponseDto<ProductResponseDto>> {
     const { page = 1, limit = 20, sort = 'discount_desc' } = query;
 
@@ -383,6 +344,45 @@ export class ProductsController {
     return {
       message: 'Sale statistics retrieved successfully',
       data: stats,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  @Get(':slug')
+  @ApiOperation({
+    summary: 'Get product by slug',
+    description:
+      'Get product details by slug. Only returns active products for public access.',
+  })
+  @ApiParam({
+    name: 'slug',
+    description: 'Product slug (URL-friendly identifier)',
+    example: 'ao-thun-basic-trang',
+  })
+  @ApiOkResponse({
+    schema: {
+      allOf: [
+        { $ref: getSchemaPath(BaseResponseDto) },
+        {
+          properties: {
+            data: { $ref: getSchemaPath(ProductResponseDto) },
+          },
+        },
+      ],
+    },
+  })
+  async findBySlug(
+    @Param('slug') slug: string,
+  ): Promise<BaseResponseDto<ProductResponseDto>> {
+    // Use public method that only returns active products
+    const product = await this.productsService.findBySlugPublic(slug);
+    return {
+      message: 'Product retrieved successfully',
+      data: plainToInstance(ProductResponseDto, product, {
+        excludeExtraneousValues: true,
+      }),
       meta: {
         timestamp: new Date().toISOString(),
       },
