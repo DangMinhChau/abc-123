@@ -45,7 +45,6 @@ export class PaymentsController {
       },
     };
   }
-
   @Post('paypal/create-order')
   @ApiOperation({ summary: 'Create PayPal order' })
   @ApiResponse({
@@ -67,13 +66,29 @@ export class PaymentsController {
       amount: createOrderDto.amount,
       note: 'PayPal payment',
     });
-    return {
-      message: 'PayPal order created successfully',
-      data: result,
-      meta: {
-        timestamp: new Date().toISOString(),
-      },
-    };
+
+    // Check if result has paypalOrderId (PayPal payment) or is regular payment
+    if ('paypalOrderId' in result) {
+      return {
+        message: 'PayPal order created successfully',
+        data: {
+          paypalOrderId: result.paypalOrderId,
+          status: result.status,
+          orderId: result.orderId,
+        },
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } else {
+      return {
+        message: 'Payment created successfully',
+        data: result,
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
   }
 
   @Post('paypal/capture-order')
