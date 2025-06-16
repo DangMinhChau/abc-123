@@ -722,19 +722,16 @@ export class OrdersService {
       'Created At',
       'Shipping Address',
     ];
-
     const rows = orders.map((order) => [
       order.orderNumber,
       order.user?.email || 'Guest',
-      order.user
-        ? `${order.user.firstName} ${order.user.lastName}`
-        : `${order.guestFirstName} ${order.guestLastName}`,
+      order.user ? order.user.fullName : order.customerName,
       order.status,
       order.payment?.status || 'N/A',
-      order.totalAmount.toString(),
+      order.totalPrice.toString(),
       order.createdAt.toISOString(),
       order.shipping
-        ? `${order.shipping.address}, ${order.shipping.city}, ${order.shipping.state} ${order.shipping.postalCode}`
+        ? `${order.shipping.address}, ${order.shipping.ward}, ${order.shipping.district}, ${order.shipping.province}`
         : 'N/A',
     ]);
 
