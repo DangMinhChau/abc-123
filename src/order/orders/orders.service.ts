@@ -482,6 +482,270 @@ export class OrdersService {
   }
 
   /**
+   * Find all orders for admin with advanced filtering
+   */
+  async findAllForAdmin(filters: {
+    page: number;
+    limit: number;
+    status?: OrderStatus;
+    paymentStatus?: PaymentStatus;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: 'ASC' | 'DESC';
+  }) {
+    const queryBuilder = this.orderRepository
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.payment', 'payment')
+      .leftJoinAndSelect('order.shipping', 'shipping')
+      .leftJoinAndSelect('order.items', 'items')
+      .leftJoinAndSelect('items.product', 'product')
+      .leftJoinAndSelect('items.variant', 'variant')
+      .leftJoinAndSelect('order.voucher', 'voucher');
+
+    // Apply filters
+    if (filters.status) {
+      queryBuilder.andWhere('order.status = :status', {
+        status: filters.status,
+      });
+    }
+
+    if (
+      filters.paymentStatus &&
+      filters.paymentStatus !== PaymentStatus.PENDING
+    ) {
+      queryBuilder.andWhere('payment.status = :paymentStatus', {
+        paymentStatus: filters.paymentStatus,
+      });
+    }
+
+    if (filters.search) {
+      queryBuilder.andWhere(
+        '(order.orderNumber ILIKE :search OR user.email ILIKE :search OR user.firstName ILIKE :search OR user.lastName ILIKE :search)',
+        { search: `%${filters.search}%` },
+      );
+    }
+
+    // Apply sorting
+    const sortBy = filters.sortBy || 'createdAt';
+    const sortOrder = filters.sortOrder || 'DESC';
+    queryBuilder.orderBy(`order.${sortBy}`, sortOrder);
+
+    // Apply pagination
+    const skip = (filters.page - 1) * filters.limit;
+    queryBuilder.skip(skip).take(filters.limit);
+
+    const [data, total] = await queryBuilder.getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        page: filters.page,
+        limit: filters.limit,
+        total,
+      },
+    };
+  }
+
+  /**
+   * Find one order for admin (full details)
+   */
+  async findOneForAdmin(id: string) {
+    const order = await this.orderRepository
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.payment', 'payment')
+      .leftJoinAndSelect('order.shipping', 'shipping')
+      .leftJoinAndSelect('order.items', 'items')
+      .leftJoinAndSelect('items.product', 'product')
+      .leftJoinAndSelect('items.variant', 'variant')
+      .leftJoinAndSelect('variant.color', 'color')
+      .leftJoinAndSelect('variant.size', 'size')
+      .leftJoinAndSelect('order.voucher', 'voucher')
+      .where('order.id = :id', { id })
+      .getOne();
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return order;
+  }
+  /**
+   * Update order status for admin
+   */
+  async updateOrderStatus(id: string, status: OrderStatus) {
+    const order = await this.findOneForAdmin(id);
+
+    order.status = status;
+    if (status === OrderStatus.CANCELLED) {
+      order.canceledAt = new Date();
+    } else if (status === OrderStatus.COMPLETED) {
+      order.completedAt = new Date();
+    }
+
+    return await this.orderRepository.save(order);
+  }
+
+  /**
+   * Get order statistics for admin dashboard
+   */
+  async getOrderStats() {
+    const today = new Date();
+    const startOfDay = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    );
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay());
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+    // Total orders
+    const totalOrders = await this.orderRepository.count();
+
+    // Orders by status
+    const ordersByStatus = await this.orderRepository
+      .createQueryBuilder('order')
+      .select('order.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('order.status')
+      .getRawMany();
+
+    // Today's orders
+    const todayOrders = await this.orderRepository
+      .createQueryBuilder('order')
+      .where('order.createdAt >= :startOfDay', { startOfDay })
+      .getCount();
+
+    // This week's orders
+    const weekOrders = await this.orderRepository
+      .createQueryBuilder('order')
+      .where('order.createdAt >= :startOfWeek', { startOfWeek })
+      .getCount();
+
+    // This month's orders
+    const monthOrders = await this.orderRepository
+      .createQueryBuilder('order')
+      .where('order.createdAt >= :startOfMonth', { startOfMonth })
+      .getCount();
+
+    // Revenue statistics
+    const revenueStats = await this.orderRepository
+      .createQueryBuilder('order')
+      .select('SUM(order.totalAmount)', 'totalRevenue')
+      .addSelect('AVG(order.totalAmount)', 'averageOrderValue')
+      .where('order.status != :cancelledStatus', {
+        cancelledStatus: OrderStatus.CANCELLED,
+      })
+      .getRawOne();
+
+    // Monthly revenue
+    const monthlyRevenue = await this.orderRepository
+      .createQueryBuilder('order')
+      .select('SUM(order.totalAmount)', 'revenue')
+      .where('order.createdAt >= :startOfMonth', { startOfMonth })
+      .andWhere('order.status != :cancelledStatus', {
+        cancelledStatus: OrderStatus.CANCELLED,
+      })
+      .getRawOne();
+
+    return {
+      totalOrders,
+      ordersByStatus: ordersByStatus.reduce((acc, item) => {
+        acc[item.status] = parseInt(item.count);
+        return acc;
+      }, {}),
+      periodStats: {
+        today: todayOrders,
+        week: weekOrders,
+        month: monthOrders,
+      },
+      revenue: {
+        total: parseFloat(revenueStats.totalRevenue) || 0,
+        average: parseFloat(revenueStats.averageOrderValue) || 0,
+        monthly: parseFloat(monthlyRevenue.revenue) || 0,
+      },
+    };
+  }
+
+  /**
+   * Export orders to CSV format
+   */
+  async exportOrders(filters: {
+    status?: OrderStatus;
+    paymentStatus?: PaymentStatus;
+    dateFrom?: string;
+    dateTo?: string;
+  }) {
+    const queryBuilder = this.orderRepository
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.payment', 'payment')
+      .leftJoinAndSelect('order.shipping', 'shipping');
+
+    // Apply filters
+    if (filters.status) {
+      queryBuilder.andWhere('order.status = :status', {
+        status: filters.status,
+      });
+    }
+
+    if (filters.paymentStatus) {
+      queryBuilder.andWhere('payment.status = :paymentStatus', {
+        paymentStatus: filters.paymentStatus,
+      });
+    }
+
+    if (filters.dateFrom) {
+      queryBuilder.andWhere('order.createdAt >= :dateFrom', {
+        dateFrom: new Date(filters.dateFrom),
+      });
+    }
+
+    if (filters.dateTo) {
+      queryBuilder.andWhere('order.createdAt <= :dateTo', {
+        dateTo: new Date(filters.dateTo),
+      });
+    }
+
+    const orders = await queryBuilder.getMany();
+
+    // Convert to CSV format
+    const headers = [
+      'Order Number',
+      'Customer Email',
+      'Customer Name',
+      'Status',
+      'Payment Status',
+      'Total Amount',
+      'Created At',
+      'Shipping Address',
+    ];
+
+    const rows = orders.map((order) => [
+      order.orderNumber,
+      order.user?.email || 'Guest',
+      order.user
+        ? `${order.user.firstName} ${order.user.lastName}`
+        : `${order.guestFirstName} ${order.guestLastName}`,
+      order.status,
+      order.payment?.status || 'N/A',
+      order.totalAmount.toString(),
+      order.createdAt.toISOString(),
+      order.shipping
+        ? `${order.shipping.address}, ${order.shipping.city}, ${order.shipping.state} ${order.shipping.postalCode}`
+        : 'N/A',
+    ]);
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((field) => `"${field}"`).join(','))
+      .join('\n');
+
+    return csvContent;
+  }
+
+  /**
    * Handle abandoned orders (orders without successful payment after threshold time)
    */
   async handleAbandonedOrders(thresholdMinutes: number = 60): Promise<number> {
@@ -528,5 +792,72 @@ export class OrdersService {
 
     this.logger.log(`Successfully handled ${handled} abandoned orders`);
     return handled;
+  }
+
+  /**
+   * Cancel order for admin with reason
+   */ async cancelOrderForAdmin(id: string, reason?: string): Promise<Order> {
+    const order = await this.findOneForAdmin(id);
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException('Order is already cancelled');
+    }
+
+    if (order.status === OrderStatus.COMPLETED) {
+      throw new BadRequestException('Cannot cancel completed order');
+    }
+
+    const originalStatus = order.status;
+    order.status = OrderStatus.CANCELLED;
+    order.canceledAt = new Date();
+    if (reason) {
+      order.note = order.note
+        ? `${order.note}\n\nCancellation reason: ${reason}`
+        : `Cancellation reason: ${reason}`;
+    }
+
+    await this.orderRepository.save(order);
+
+    // Restore stock if order was being processed
+    if (originalStatus === OrderStatus.PROCESSING) {
+      await this.restoreStockForFailedPayment(id);
+    }
+
+    return order;
+  }
+
+  /**
+   * Bulk update orders
+   */
+  async bulkUpdateOrders(
+    orderIds: string[],
+    updateData: { status?: OrderStatus; note?: string },
+  ): Promise<{ updated: number; failed: string[] }> {
+    const failed: string[] = [];
+    let updated = 0;
+
+    for (const orderId of orderIds) {
+      try {
+        const order = await this.findOneForAdmin(orderId);
+
+        if (updateData.status) {
+          order.status = updateData.status;
+        }
+
+        if (updateData.note) {
+          order.note = order.note
+            ? `${order.note}\n\n${updateData.note}`
+            : updateData.note;
+        }
+
+        await this.orderRepository.save(order);
+        updated++;
+      } catch (error) {
+        this.logger.error(`Failed to update order ${orderId}:`, error);
+        failed.push(orderId);
+      }
+    }
+
+    return { updated, failed };
   }
 }
