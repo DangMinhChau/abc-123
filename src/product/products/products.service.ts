@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Product } from 'src/product/products/entities/product.entity';
-import { Repository } from 'typeorm';
+import { Repository, MoreThan } from 'typeorm';
 import { Material } from 'src/product/materials/entities/material.entity';
 import { Style } from 'src/product/styles/entities/style.entity';
 import { Tag } from 'src/product/tags/entities/tag.entity';
@@ -523,6 +523,82 @@ export class ProductsService {
       maxDiscountPercent: parseFloat(stats?.maxDiscountPercent || '0'),
       averageDiscountPercent: parseFloat(stats?.averageDiscountPercent || '0'),
       totalDiscountValue: parseFloat(stats?.totalDiscountValue || '0'),
+    };
+  }
+
+  /**
+   * Debug method to check products with discount
+   */
+  async debugDiscountProducts(): Promise<any[]> {
+    const products = await this.productRepository
+      .createQueryBuilder('product')
+      .select([
+        'product.id',
+        'product.name',
+        'product.basePrice',
+        'product.discountPercent',
+        'product.isActive',
+      ])
+      .where('product.isActive = :isActive', { isActive: true })
+      .orderBy('product.discountPercent', 'DESC')
+      .limit(10)
+      .getMany();
+
+    return products.map((product) => ({
+      id: product.id,
+      name: product.name,
+      basePrice: product.basePrice,
+      discountPercent: product.discountPercent,
+      isActive: product.isActive,
+      hasDiscount: (product.discountPercent || 0) > 0,
+    }));
+  }
+
+  /**
+   * Debug: Get products with discount information
+   */
+  async getDebugProductsWithDiscount(): Promise<{
+    totalProducts: number;
+    totalActiveProducts: number;
+    productsWithDiscount: number;
+    sampleProductsWithDiscount: any[];
+    sampleProductsWithoutDiscount: any[];
+  }> {
+    const totalProducts = await this.productRepository.count();
+    const totalActiveProducts = await this.productRepository.count({
+      where: { isActive: true },
+    });
+
+    const productsWithDiscount = await this.productRepository.count({
+      where: {
+        isActive: true,
+        discountPercent: MoreThan(0),
+      },
+    });
+
+    const sampleWithDiscount = await this.productRepository.find({
+      where: {
+        isActive: true,
+        discountPercent: MoreThan(0),
+      },
+      take: 5,
+      select: ['id', 'name', 'basePrice', 'discountPercent', 'isActive'],
+    });
+
+    const sampleWithoutDiscount = await this.productRepository.find({
+      where: {
+        isActive: true,
+      },
+      take: 5,
+      select: ['id', 'name', 'basePrice', 'discountPercent', 'isActive'],
+    });
+
+    return {
+      totalProducts,
+      totalActiveProducts,
+      productsWithDiscount,
+      sampleProductsWithDiscount: sampleWithDiscount,
+      sampleProductsWithoutDiscount: sampleWithoutDiscount,
     };
   }
 }

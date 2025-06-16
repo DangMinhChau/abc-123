@@ -388,4 +388,34 @@ export class ProductsController {
       },
     };
   }
+
+  @Get('debug/discount')
+  @ApiOperation({ summary: 'Debug: Check products with discount' })
+  async debugDiscountProducts(): Promise<any> {
+    // Get all products with their discount info
+    const products = await this.productsService.debugDiscountProducts();
+    return {
+      message: 'Debug discount products',
+      data: products,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  @Get('debug/products-with-discount')
+  @ApiOperation({
+    summary: 'Debug: Get all products with discount > 0',
+    description: 'Temporary endpoint to debug sale products issue',
+  })
+  async getProductsWithDiscount(): Promise<any> {
+    const stats = await this.productsService.getDebugProductsWithDiscount();
+    return {
+      message: 'Debug data retrieved successfully',
+      data: stats,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
 }
