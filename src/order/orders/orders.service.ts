@@ -10,15 +10,15 @@ import { Order } from './entities/order.entity';
 import { OrderItem } from '../order-items/entities/order-item.entity';
 import { Payment } from '../payments/entities/payment.entity';
 import { Shipping } from '../shippings/entities/shipping.entity';
-import { User } from 'src/user/users/entities/user.entity';
-import { Voucher } from 'src/promotion/vouchers/entities/voucher.entity';
-import { ProductVariant } from 'src/product/variants/entities/variant.entity';
+import { User } from '../../user/users/entities/user.entity';
+import { Voucher } from '../../promotion/vouchers/entities/voucher.entity';
+import { ProductVariant } from '../../product/variants/entities/variant.entity';
 import { CreateOrderDto } from './dto/requests/create-order.dto';
-import { OrderStatus } from 'src/common/constants/order-status.enum';
-import { PaymentMethod } from 'src/common/constants/payment-method.enum';
-import { PaymentStatus } from 'src/common/constants/payment-status.enum';
-import { ShippingStatus } from 'src/common/constants/shipping-status.enum';
-import { ShippingMethod } from 'src/common/constants/shipping-method.enum';
+import { OrderStatus } from '../../common/constants/order-status.enum';
+import { PaymentMethod } from '../../common/constants/payment-method.enum';
+import { PaymentStatus } from '../../common/constants/payment-status.enum';
+import { ShippingStatus } from '../../common/constants/shipping-status.enum';
+import { ShippingMethod } from '../../common/constants/shipping-method.enum';
 
 @Injectable()
 export class OrdersService {

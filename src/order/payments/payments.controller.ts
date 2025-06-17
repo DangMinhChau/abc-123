@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { PaymentsService } from './payments.service';
 import { PayPalService } from './services/paypal.service';
-import { OptionalJwtAuthGuard } from 'src/common/guards/optional-jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../../common/guards';
 
 export class CreatePayPalOrderDto {
   orderId: string;

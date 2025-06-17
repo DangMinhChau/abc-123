@@ -11,10 +11,9 @@ import {
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/requests/create-order.dto';
-import { OptionalJwtAuthGuard } from 'src/common/guards/optional-jwt-auth.guard';
-import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
-import { GetUser } from 'src/common/decorators/get-user.decorator';
-import { User } from 'src/user/users/entities/user.entity';
+import { OptionalJwtAuthGuard, JwtAuthGuard } from '../../common/guards';
+import { GetUser } from '../../common/decorators/get-user.decorator';
+import { User } from '../../user/users/entities/user.entity';
 
 @Controller('orders')
 export class OrdersController {
