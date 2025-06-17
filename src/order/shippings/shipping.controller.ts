@@ -19,6 +19,7 @@ import {
 import { JwtAuthGuard } from '../../common/guards';
 import { GetUser } from '../../common/decorators';
 import { User } from '../../user/users/entities/user.entity';
+import { BaseResponseDto, PaginatedResponseDto } from '../../common/dto';
 import { ShippingService } from './shipping.service';
 import {
   CreateShippingDto,
@@ -39,13 +40,21 @@ export class ShippingController {
   @ApiResponse({
     status: 201,
     description: 'Shipping record created successfully',
-    type: ShippingResponseDto,
+    type: BaseResponseDto<ShippingResponseDto>,
   })
   async create(
     @Body() createShippingDto: CreateShippingDto,
     @GetUser() user: User,
-  ): Promise<ShippingResponseDto> {
-    return this.shippingService.create(createShippingDto, user);
+  ): Promise<BaseResponseDto<ShippingResponseDto>> {
+    const shipping = await this.shippingService.create(createShippingDto, user);
+
+    return {
+      message: 'Tạo thông tin giao hàng thành công',
+      data: shipping,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
   }
 
   @Get()
@@ -53,13 +62,29 @@ export class ShippingController {
   @ApiResponse({
     status: 200,
     description: 'Shipping records retrieved successfully',
-    type: [ShippingResponseDto],
+    type: PaginatedResponseDto<ShippingResponseDto>,
   })
   async findAll(
     @Query() query: ShippingQueryDto,
     @GetUser() user: User,
-  ): Promise<ShippingResponseDto[]> {
-    return this.shippingService.findAll(query, user);
+  ): Promise<PaginatedResponseDto<ShippingResponseDto>> {
+    const shippings = await this.shippingService.findAll(query, user);
+
+    // In a real implementation, you would get pagination info from the service
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+
+    return {
+      message: 'Lấy danh sách thông tin giao hàng thành công',
+      data: shippings,
+      meta: {
+        timestamp: new Date().toISOString(),
+        page,
+        limit,
+        total: shippings.length, // This should come from the service
+        totalPages: Math.ceil(shippings.length / limit),
+      },
+    };
   }
 
   @Get(':id')
@@ -67,13 +92,21 @@ export class ShippingController {
   @ApiResponse({
     status: 200,
     description: 'Shipping record retrieved successfully',
-    type: ShippingResponseDto,
+    type: BaseResponseDto<ShippingResponseDto>,
   })
   async findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @GetUser() user: User,
-  ): Promise<ShippingResponseDto> {
-    return this.shippingService.findOne(id, user);
+  ): Promise<BaseResponseDto<ShippingResponseDto>> {
+    const shipping = await this.shippingService.findOne(id, user);
+
+    return {
+      message: 'Lấy thông tin giao hàng thành công',
+      data: shipping,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
   }
 
   @Patch(':id')
@@ -81,14 +114,26 @@ export class ShippingController {
   @ApiResponse({
     status: 200,
     description: 'Shipping record updated successfully',
-    type: ShippingResponseDto,
+    type: BaseResponseDto<ShippingResponseDto>,
   })
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateShippingDto: UpdateShippingDto,
     @GetUser() user: User,
-  ): Promise<ShippingResponseDto> {
-    return this.shippingService.update(id, updateShippingDto, user);
+  ): Promise<BaseResponseDto<ShippingResponseDto>> {
+    const shipping = await this.shippingService.update(
+      id,
+      updateShippingDto,
+      user,
+    );
+
+    return {
+      message: 'Cập nhật thông tin giao hàng thành công',
+      data: shipping,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
   }
 
   @Delete(':id')
@@ -96,11 +141,20 @@ export class ShippingController {
   @ApiResponse({
     status: 200,
     description: 'Shipping record deleted successfully',
+    type: BaseResponseDto<null>,
   })
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
     @GetUser() user: User,
-  ): Promise<void> {
-    return this.shippingService.remove(id, user);
+  ): Promise<BaseResponseDto<null>> {
+    await this.shippingService.remove(id, user);
+
+    return {
+      message: 'Xóa thông tin giao hàng thành công',
+      data: null,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
   }
 }

@@ -6,25 +6,39 @@ import {
   Param,
   Query,
   UseGuards,
-  HttpStatus,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/requests/create-order.dto';
 import { OptionalJwtAuthGuard, JwtAuthGuard } from '../../common/guards';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { User } from '../../user/users/entities/user.entity';
+import { BaseResponseDto, PaginatedResponseDto } from '../../common/dto';
+import { OrderResponseDto } from './dto/responses';
 
+@ApiTags('Orders')
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post()
   @UseGuards(OptionalJwtAuthGuard) // Allow both authenticated and guest users
+  @ApiOperation({ summary: 'Create a new order' })
+  @ApiResponse({
+    status: 201,
+    description: 'Order created successfully',
+    type: BaseResponseDto<OrderResponseDto>,
+  })
   async createOrder(
     @Body() createOrderDto: CreateOrderDto,
     @GetUser() user: User | null,
-  ) {
+  ): Promise<BaseResponseDto<OrderResponseDto>> {
     try {
       // Set userId from JWT if authenticated
       if (user && !createOrderDto.userId) {
@@ -34,7 +48,6 @@ export class OrdersController {
       const order = await this.ordersService.createOrder(createOrderDto);
 
       return {
-        statusCode: HttpStatus.CREATED,
         message: 'Đã tạo đơn hàng thành công',
         data: order,
         meta: {
@@ -44,125 +57,96 @@ export class OrdersController {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      return {
-        statusCode: HttpStatus.BAD_REQUEST,
-        message: 'Không thể tạo đơn hàng',
-        data: null,
-        error: errorMessage,
-      };
+      throw new Error(`Không thể tạo đơn hàng: ${errorMessage}`);
     }
   }
+
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Get order by ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Order retrieved successfully',
+    type: BaseResponseDto<OrderResponseDto>,
+  })
   async getOrderById(
     @Param('id', ParseUUIDPipe) id: string,
     @GetUser() user: User | null,
-  ) {
-    try {
-      const order = await this.ordersService.findOrderById(id);
+  ): Promise<BaseResponseDto<OrderResponseDto>> {
+    const order = await this.ordersService.findOrderById(id);
 
-      // Check if user has permission to view this order
-      if (order.user && user && order.user.id !== user.id) {
-        return {
-          statusCode: HttpStatus.FORBIDDEN,
-          message: 'Bạn không có quyền xem đơn hàng này',
-          data: null,
-        };
-      }
-
-      return {
-        statusCode: HttpStatus.OK,
-        message: 'Lấy thông tin đơn hàng thành công',
-        data: order,
-        meta: {
-          timestamp: new Date().toISOString(),
-        },
-      };
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      return {
-        statusCode: HttpStatus.NOT_FOUND,
-        message: 'Không tìm thấy đơn hàng',
-        data: null,
-        error: errorMessage,
-      };
+    // Check if user has permission to view this order
+    if (order.user && user && order.user.id !== user.id) {
+      throw new Error('Bạn không có quyền xem đơn hàng này');
     }
+
+    return {
+      message: 'Lấy thông tin đơn hàng thành công',
+      data: order,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
   }
+
   @Get('number/:orderNumber')
   @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Get order by order number' })
+  @ApiResponse({
+    status: 200,
+    description: 'Order retrieved successfully',
+    type: BaseResponseDto<OrderResponseDto>,
+  })
   async getOrderByNumber(
     @Param('orderNumber') orderNumber: string,
     @GetUser() user: User | null,
-  ) {
-    try {
-      const order = await this.ordersService.findOrderByNumber(orderNumber);
+  ): Promise<BaseResponseDto<OrderResponseDto>> {
+    const order = await this.ordersService.findOrderByNumber(orderNumber);
 
-      // Check if user has permission to view this order
-      if (order.user && user && order.user.id !== user.id) {
-        return {
-          statusCode: HttpStatus.FORBIDDEN,
-          message: 'Bạn không có quyền xem đơn hàng này',
-          data: null,
-        };
-      }
-
-      return {
-        statusCode: HttpStatus.OK,
-        message: 'Lấy thông tin đơn hàng thành công',
-        data: order,
-        meta: {
-          timestamp: new Date().toISOString(),
-        },
-      };
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      return {
-        statusCode: HttpStatus.NOT_FOUND,
-        message: 'Không tìm thấy đơn hàng',
-        data: null,
-        error: errorMessage,
-      };
+    // Check if user has permission to view this order
+    if (order.user && user && order.user.id !== user.id) {
+      throw new Error('Bạn không có quyền xem đơn hàng này');
     }
+
+    return {
+      message: 'Lấy thông tin đơn hàng thành công',
+      data: order,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
   }
+
   @Get('user/me')
   @UseGuards(JwtAuthGuard) // Require authentication
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current user orders with pagination' })
+  @ApiResponse({
+    status: 200,
+    description: 'Orders retrieved successfully',
+    type: PaginatedResponseDto<OrderResponseDto>,
+  })
   async getMyOrders(
     @Query('page') page = 1,
     @Query('limit') limit = 10,
     @GetUser() user: User,
-  ) {
-    try {
-      const result = await this.ordersService.findOrdersByUser(
-        user.id,
-        Number(page),
-        Number(limit),
-      );
+  ): Promise<PaginatedResponseDto<OrderResponseDto>> {
+    const result = await this.ordersService.findOrdersByUser(
+      user.id,
+      Number(page),
+      Number(limit),
+    );
 
-      return {
-        statusCode: HttpStatus.OK,
-        message: 'Lấy danh sách đơn hàng thành công',
-        data: result.orders,
-        meta: {
-          timestamp: new Date().toISOString(),
-          pagination: {
-            page: result.page,
-            limit: result.limit,
-            total: result.total,
-            totalPages: result.totalPages,
-          },
-        },
-      };
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      return {
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: 'Không thể lấy danh sách đơn hàng',
-        data: null,
-        error: errorMessage,
-      };
-    }
+    return {
+      message: 'Lấy danh sách đơn hàng thành công',
+      data: result.orders,
+      meta: {
+        timestamp: new Date().toISOString(),
+        page: result.page,
+        limit: result.limit,
+        total: result.total,
+        totalPages: result.totalPages,
+      },
+    };
   }
 }

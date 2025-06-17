@@ -1,27 +1,21 @@
+import { Controller, Post, Body, Get, Param, UseGuards } from '@nestjs/common';
 import {
-  Controller,
-  Post,
-  Body,
-  Get,
-  Param,
-  HttpStatus,
-  UseGuards,
-} from '@nestjs/common';
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
 import { PayPalService } from './services/paypal.service';
 import { OptionalJwtAuthGuard } from '../../common/guards';
+import { BaseResponseDto } from '../../common/dto';
+import {
+  CreatePayPalOrderDto,
+  CapturePayPalOrderDto,
+  PaymentResponseDto,
+} from './dto';
 
-export class CreatePayPalOrderDto {
-  orderId: string;
-  amount: number;
-  currency?: string;
-}
-
-export class CapturePayPalOrderDto {
-  paypalOrderId: string;
-  orderId: string;
-}
-
+@ApiTags('Payments')
 @Controller('payments')
 export class PaymentsController {
   constructor(
@@ -31,65 +25,62 @@ export class PaymentsController {
 
   @Post('paypal/create-order')
   @UseGuards(OptionalJwtAuthGuard) // Allow both authenticated and guest users
-  async createPayPalOrder(@Body() createPayPalOrderDto: CreatePayPalOrderDto) {
-    try {
-      const { orderId, amount, currency = 'VND' } = createPayPalOrderDto;
+  @ApiOperation({ summary: 'Create PayPal order' })
+  @ApiResponse({
+    status: 201,
+    description: 'PayPal order created successfully',
+    type: BaseResponseDto,
+  })
+  async createPayPalOrder(
+    @Body() createPayPalOrderDto: CreatePayPalOrderDto,
+  ): Promise<BaseResponseDto<any>> {
+    const { orderId, amount, currency = 'VND' } = createPayPalOrderDto;
 
-      // Validate amount
-      if (!amount || amount <= 0) {
-        return {
-          statusCode: HttpStatus.BAD_REQUEST,
-          message: 'Số tiền không hợp lệ',
-          data: null,
-        };
-      }
-
-      // Create PayPal order
-      const paypalOrder = await this.paypalService.createOrder(
-        amount,
-        currency,
-        orderId,
-      );
-
-      // Update payment record in database
-      await this.paymentsService.updatePaymentWithPayPalOrder(
-        orderId,
-        paypalOrder.id,
-        amount,
-      );
-
-      return {
-        statusCode: HttpStatus.CREATED,
-        message: 'Đã tạo đơn thanh toán PayPal thành công',
-        data: {
-          paypalOrderId: paypalOrder.id,
-          status: paypalOrder.status,
-          orderId,
-          approvalLinks:
-            paypalOrder.links?.filter((link) => link.rel === 'approve') || [],
-        },
-        meta: {
-          timestamp: new Date().toISOString(),
-        },
-      };
-    } catch (error) {
-      console.error('PayPal order creation failed:', error);
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      return {
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: 'Không thể tạo đơn thanh toán PayPal',
-        data: null,
-        error: errorMessage,
-      };
+    // Validate amount
+    if (!amount || amount <= 0) {
+      throw new Error('Số tiền không hợp lệ');
     }
+
+    // Create PayPal order
+    const paypalOrder = await this.paypalService.createOrder(
+      amount,
+      currency,
+      orderId,
+    );
+
+    // Update payment record in database
+    await this.paymentsService.updatePaymentWithPayPalOrder(
+      orderId,
+      paypalOrder.id,
+      amount,
+    );
+
+    return {
+      message: 'Đã tạo đơn thanh toán PayPal thành công',
+      data: {
+        paypalOrderId: paypalOrder.id,
+        status: paypalOrder.status,
+        orderId,
+        approvalLinks:
+          paypalOrder.links?.filter((link) => link.rel === 'approve') || [],
+      },
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
   }
 
   @Post('paypal/capture-order')
   @UseGuards(OptionalJwtAuthGuard) // Allow both authenticated and guest users
+  @ApiOperation({ summary: 'Capture PayPal order' })
+  @ApiResponse({
+    status: 200,
+    description: 'PayPal order captured successfully',
+    type: BaseResponseDto,
+  })
   async capturePayPalOrder(
     @Body() capturePayPalOrderDto: CapturePayPalOrderDto,
-  ) {
+  ): Promise<BaseResponseDto<any>> {
     try {
       const { paypalOrderId, orderId } = capturePayPalOrderDto;
 
@@ -105,7 +96,6 @@ export class PaymentsController {
       );
 
       return {
-        statusCode: HttpStatus.OK,
         message: 'Thanh toán PayPal thành công',
         data: {
           status: captureResult.status,
@@ -133,46 +123,42 @@ export class PaymentsController {
 
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      return {
-        statusCode: HttpStatus.BAD_REQUEST,
-        message: 'Thanh toán PayPal thất bại',
-        data: null,
-        error: errorMessage,
-      };
+      throw new Error(`Thanh toán PayPal thất bại: ${errorMessage}`);
     }
   }
 
   @Get('paypal/order/:paypalOrderId')
   @UseGuards(OptionalJwtAuthGuard)
-  async getPayPalOrderDetails(@Param('paypalOrderId') paypalOrderId: string) {
-    try {
-      const orderDetails =
-        await this.paypalService.getOrderDetails(paypalOrderId);
+  @ApiOperation({ summary: 'Get PayPal order details' })
+  @ApiResponse({
+    status: 200,
+    description: 'PayPal order details retrieved successfully',
+    type: BaseResponseDto,
+  })
+  async getPayPalOrderDetails(
+    @Param('paypalOrderId') paypalOrderId: string,
+  ): Promise<BaseResponseDto<any>> {
+    const orderDetails =
+      await this.paypalService.getOrderDetails(paypalOrderId);
 
-      return {
-        statusCode: HttpStatus.OK,
-        message: 'Lấy thông tin đơn thanh toán thành công',
-        data: orderDetails,
-        meta: {
-          timestamp: new Date().toISOString(),
-        },
-      };
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      return {
-        statusCode: HttpStatus.BAD_REQUEST,
-        message: 'Không thể lấy thông tin đơn thanh toán',
-        data: null,
-        error: errorMessage,
-      };
-    }
+    return {
+      message: 'Lấy thông tin đơn thanh toán thành công',
+      data: orderDetails,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
   }
 
   @Get('paypal/status')
-  getPayPalStatus() {
+  @ApiOperation({ summary: 'Get PayPal service status' })
+  @ApiResponse({
+    status: 200,
+    description: 'PayPal service status retrieved successfully',
+    type: BaseResponseDto,
+  })
+  getPayPalStatus(): BaseResponseDto<any> {
     return {
-      statusCode: HttpStatus.OK,
       message: 'Trạng thái dịch vụ PayPal',
       data: {
         configured: this.paypalService.isConfigured(),
