@@ -61,6 +61,44 @@ export class OrdersController {
     }
   }
 
+  @Post('paypal')
+  @UseGuards(OptionalJwtAuthGuard) // Allow both authenticated and guest users
+  @ApiOperation({ summary: 'Create a new order with PayPal payment' })
+  @ApiResponse({
+    status: 201,
+    description: 'PayPal order created successfully',
+    type: BaseResponseDto<{ orderId: string; approvalUrl: string }>,
+  })
+  async createPayPalOrder(
+    @Body() createOrderDto: CreateOrderDto,
+    @GetUser() user: User | null,
+  ): Promise<BaseResponseDto<{ orderId: string; approvalUrl: string }>> {
+    try {
+      // Set userId from JWT if authenticated
+      if (user && !createOrderDto.userId) {
+        createOrderDto.userId = user.id;
+      }
+
+      const result =
+        await this.ordersService.createOrderWithPayPal(createOrderDto);
+
+      return {
+        message: 'Đã tạo đơn hàng PayPal thành công',
+        data: {
+          orderId: result.order.id,
+          approvalUrl: result.approvalUrl,
+        },
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Không thể tạo đơn hàng PayPal: ${errorMessage}`);
+    }
+  }
+
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: 'Get order by ID' })

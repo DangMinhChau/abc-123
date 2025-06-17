@@ -134,8 +134,8 @@ export class PayPalService {
           landing_page: 'BILLING',
           user_action: 'PAY_NOW',
           shipping_preference: 'NO_SHIPPING', // We handle shipping separately
-          return_url: `${this.configService.get('FRONTEND_URL')}/order-success`,
-          cancel_url: `${this.configService.get('FRONTEND_URL')}/checkout`,
+          return_url: `${this.configService.get('FRONTEND_URL')}/paypal-return?orderId=${orderId}`,
+          cancel_url: `${this.configService.get('FRONTEND_URL')}/paypal-cancel`,
         },
       };
 

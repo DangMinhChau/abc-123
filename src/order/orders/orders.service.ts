@@ -19,6 +19,7 @@ import { PaymentMethod } from '../../common/constants/payment-method.enum';
 import { PaymentStatus } from '../../common/constants/payment-status.enum';
 import { ShippingStatus } from '../../common/constants/shipping-status.enum';
 import { ShippingMethod } from '../../common/constants/shipping-method.enum';
+import { PayPalService } from '../payments/services/paypal.service';
 
 @Injectable()
 export class OrdersService {
@@ -39,6 +40,7 @@ export class OrdersService {
     private voucherRepository: Repository<Voucher>,
     @InjectRepository(ProductVariant)
     private variantRepository: Repository<ProductVariant>,
+    private paypalService: PayPalService,
   ) {}
   async createOrder(createOrderDto: CreateOrderDto): Promise<Order> {
     const {
@@ -295,5 +297,57 @@ export class OrdersService {
 
     const sequence = String(count + 1).padStart(4, '0');
     return `ORD${year}${month}${day}${sequence}`;
+  }
+
+  async createOrderWithPayPal(createOrderDto: CreateOrderDto): Promise<{
+    order: Order;
+    approvalUrl: string;
+  }> {
+    // First create the order (same as regular order but with PayPal payment method)
+    const order = await this.createOrder({
+      ...createOrderDto,
+      // Force PayPal payment method
+    });
+
+    try {
+      // Create PayPal order
+      const paypalOrder = await this.paypalService.createOrder(
+        order.totalPrice,
+        'VND',
+        order.id,
+      ); // Update the payment record with PayPal transaction ID
+      const payment = await this.paymentRepository.findOne({
+        where: { order: { id: order.id } },
+      });
+
+      if (payment) {
+        payment.transactionId = paypalOrder.id;
+        payment.status = PaymentStatus.PENDING;
+        await this.paymentRepository.save(payment);
+      }
+
+      // Get approval URL from PayPal response
+      const approvalLink = paypalOrder.links?.find(
+        (link) => link.rel === 'approve',
+      );
+
+      if (!approvalLink) {
+        throw new Error('Không thể lấy link thanh toán PayPal');
+      }
+
+      return {
+        order,
+        approvalUrl: approvalLink.href,
+      };
+    } catch (error) {
+      // If PayPal order creation fails, we should cancel the created order
+      await this.orderRepository.update(order.id, {
+        status: OrderStatus.CANCELLED,
+      });
+
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Không thể tạo đơn hàng PayPal: ${errorMessage}`);
+    }
   }
 }
