@@ -15,6 +15,36 @@ export interface CreatePayPalOrderParams {
   description?: string;
 }
 
+// PayPal supported currencies
+const SUPPORTED_CURRENCIES = [
+  'USD',
+  'EUR',
+  'GBP',
+  'JPY',
+  'CAD',
+  'AUD',
+  'CHF',
+  'HKD',
+  'SGD',
+  'SEK',
+  'DKK',
+  'PLN',
+  'NOK',
+  'HUF',
+  'CZK',
+  'ILS',
+  'MXN',
+  'BRL',
+  'MYR',
+  'PHP',
+  'TWD',
+  'THB',
+  'TRY',
+];
+
+// Exchange rate VND to USD (should be from a real exchange rate API in production)
+const VND_TO_USD_RATE = 0.000041; // 1 VND = 0.000041 USD (approximate)
+
 export interface PayPalOrderResponse {
   paypalOrderId: string;
   status: string;
@@ -90,12 +120,49 @@ export class PayPalService {
       environment,
     };
   }
+  private convertCurrencyForPayPal(
+    amount: number,
+    currency: string,
+  ): { amount: number; currency: string } {
+    // If currency is not supported by PayPal, convert to USD
+    if (!SUPPORTED_CURRENCIES.includes(currency.toUpperCase())) {
+      this.logger.warn(
+        `Currency ${currency} not supported by PayPal, converting to USD`,
+      );
 
+      if (currency.toUpperCase() === 'VND') {
+        const usdAmount = Math.round(amount * VND_TO_USD_RATE * 100) / 100; // Round to 2 decimal places
+        this.logger.log(`Converting ${amount} VND to ${usdAmount} USD`);
+        return { amount: usdAmount, currency: 'USD' };
+      }
+
+      // For other unsupported currencies, default to USD with a basic conversion
+      const usdAmount = Math.round(amount * 0.000041 * 100) / 100;
+      this.logger.warn(
+        `Unknown currency ${currency}, converting ${amount} to ${usdAmount} USD using default rate`,
+      );
+      return { amount: usdAmount, currency: 'USD' };
+    }
+
+    return { amount, currency };
+  }
   async createOrder(
     params: CreatePayPalOrderParams,
   ): Promise<PayPalOrderResponse> {
     try {
-      const request = new paypal.orders.OrdersCreateRequest();
+      this.logger.log(
+        `Creating PayPal order for internal order: ${params.orderId}`,
+      );
+      this.logger.log(
+        `Original amount: ${params.amount} ${params.currency || 'VND'}`,
+      );
+
+      // Convert currency if needed
+      const { amount: convertedAmount, currency: paypalCurrency } =
+        this.convertCurrencyForPayPal(params.amount, params.currency || 'VND');
+
+      this.logger.log(`PayPal amount: ${convertedAmount} ${paypalCurrency}`);
+      const request = new (paypal as any).orders.OrdersCreateRequest();
       request.prefer('return=representation');
       request.requestBody({
         intent: 'CAPTURE',
@@ -103,8 +170,11 @@ export class PayPalService {
           {
             reference_id: params.orderId,
             amount: {
-              currency_code: params.currency || 'VND',
-              value: params.amount.toFixed(0), // VND doesn't use decimal places
+              currency_code: paypalCurrency,
+              value:
+                paypalCurrency === 'USD'
+                  ? convertedAmount.toFixed(2)
+                  : convertedAmount.toFixed(0),
             },
             description: params.description || `Order ${params.orderId}`,
           },
@@ -118,21 +188,59 @@ export class PayPalService {
         },
       });
 
+      this.logger.log('Sending request to PayPal API...');
       const response = await this.client.execute(request);
       const order = response.result;
 
-      this.logger.log(
-        `Created PayPal order: ${order.id} for internal order: ${params.orderId}`,
-      );
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      this.logger.log(`✅ PayPal order created successfully: ${order.id}`);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      this.logger.log(`PayPal order status: ${order.status}`);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      this.logger.log(`PayPal order links:`, order.links);
 
       return {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         paypalOrderId: order.id,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         status: order.status,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         links: order.links,
       };
     } catch (error) {
-      this.logger.error('Error creating PayPal order:', error);
-      throw new BadRequestException('Failed to create PayPal order');
+      this.logger.error('❌ Error creating PayPal order:');
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      this.logger.error('Error name:', error.name);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      this.logger.error('Error message:', error.message);
+
+      // Log detailed PayPal API error if available
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      if (error.statusCode) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        this.logger.error('PayPal API status code:', error.statusCode);
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      if (error.details) {
+        this.logger.error(
+          'PayPal API error details:',
+          JSON.stringify(error.details, null, 2),
+        );
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      if (error.result) {
+        this.logger.error(
+          'PayPal API error result:',
+          JSON.stringify(error.result, null, 2),
+        );
+      }
+
+      // Log the full error for debugging
+      this.logger.error('Full error object:', error);
+
+      throw new BadRequestException(
+        `Failed to create PayPal order: ${error.message}`,
+      );
     }
   }
 
@@ -140,25 +248,36 @@ export class PayPalService {
     params: CapturePayPalOrderParams,
   ): Promise<PayPalCaptureResponse> {
     try {
-      const request = new paypal.orders.OrdersCaptureRequest(
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
+      const request = new (paypal as any).orders.OrdersCaptureRequest(
         params.paypalOrderId,
       );
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       request.requestBody({});
 
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const response = await this.client.execute(request);
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
       const capture = response.result;
 
       this.logger.log(`Captured PayPal order: ${params.paypalOrderId}`);
 
       // Extract capture details
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
       const captureUnit = capture.purchase_units[0].payments.captures[0];
 
       return {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         orderId: capture.purchase_units[0].reference_id,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         status: capture.status,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         captureId: captureUnit.id,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument
         amount: parseFloat(captureUnit.amount.value),
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         currency: captureUnit.amount.currency_code,
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
         createTime: captureUnit.create_time,
       };
     } catch (error) {
