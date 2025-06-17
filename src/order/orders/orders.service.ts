@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateOrderDto, CreateOrderItemDto } from './dto/create-order.dto';
+import { CreateSimpleOrderDto } from './dto/create-simple-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { Order } from './entities/order.entity';
 import { OrderStatus } from 'src/common/constants/order-status.enum';
@@ -15,14 +16,16 @@ import { ProductsService } from 'src/product/products/products.service';
 import { User } from 'src/user/users/entities/user.entity';
 import { VouchersService } from 'src/promotion/vouchers/vouchers.service';
 import { Voucher } from 'src/promotion/vouchers/entities/voucher.entity';
+import { ProductVariant } from 'src/product/variants/entities/variant.entity';
 
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
-
   constructor(
     @InjectRepository(Order)
     private orderRepository: Repository<Order>,
+    @InjectRepository(ProductVariant)
+    private variantRepository: Repository<ProductVariant>,
     private readonly productsService: ProductsService,
     private readonly vouchersService: VouchersService,
   ) {}
@@ -856,5 +859,222 @@ export class OrdersService {
     }
 
     return { updated, failed };
+  }
+
+  async createSimpleOrder(createOrderDto: CreateSimpleOrderDto) {
+    try {
+      this.logger.log('Creating simple order:', createOrderDto);
+
+      // Validate order items and check stock
+      await this.validateOrderItems(createOrderDto.items);
+
+      // Validate voucher if provided
+      let appliedVoucher: Voucher | null = null;
+      if (createOrderDto.voucherId) {
+        const voucherValidation = await this.vouchersService.validateVoucher(
+          createOrderDto.voucherId,
+          createOrderDto.subTotal,
+        );
+
+        if (!voucherValidation.isValid) {
+          throw new BadRequestException(
+            `Voucher validation failed: ${voucherValidation.error}`,
+          );
+        }
+
+        appliedVoucher = voucherValidation.voucher;
+      }
+
+      // Generate order number
+      const orderNumber = this.generateOrderNumber();
+
+      // Create order entity
+      const order = this.orderRepository.create({
+        orderNumber,
+        user: createOrderDto.userId ? { id: createOrderDto.userId } : null,
+
+        // Customer information
+        customerName: createOrderDto.customerName,
+        customerEmail: createOrderDto.customerEmail,
+        customerPhone: createOrderDto.customerPhone,
+
+        // Simplified shipping - store as single address field
+        recipientName: createOrderDto.customerName,
+        recipientPhone: createOrderDto.customerPhone,
+        streetAddress: createOrderDto.shippingAddress,
+        ward: 'N/A',
+        district: 'N/A',
+        province: 'N/A',
+        wardCode: '00000',
+        districtId: 0,
+        provinceId: 0,
+
+        // Order details
+        notes: createOrderDto.note || '',
+        subTotal: createOrderDto.subTotal,
+        shippingFee: createOrderDto.shippingFee || 0,
+        discount: createOrderDto.discount || 0,
+        totalPrice: createOrderDto.totalPrice,
+
+        // Status
+        status: OrderStatus.PENDING,
+        paymentStatus: PaymentStatus.UNPAID,
+        isPaid: false,
+
+        // Voucher
+        voucher: appliedVoucher,
+
+        // Order items
+        items: createOrderDto.items.map((item) => ({
+          variant: { id: item.variantId },
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.unitPrice * item.quantity,
+        })),
+      });
+
+      const savedOrder = await this.orderRepository.save(order);
+
+      // If voucher was applied, mark it as used
+      if (appliedVoucher) {
+        await this.vouchersService.markVoucherAsUsed(
+          appliedVoucher.id,
+          savedOrder.id,
+        );
+      }
+
+      this.logger.log(
+        `Simple order created successfully: ${savedOrder.orderNumber}`,
+      );
+      return savedOrder;
+    } catch (error) {
+      this.logger.error('Failed to create simple order:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reserve stock for order items temporarily to prevent overselling
+   * This should be called during order creation to lock inventory
+   */
+  async reserveStockForOrder(items: CreateOrderItemDto[]): Promise<void> {
+    this.logger.log('Reserving stock for order items');
+
+    for (const item of items) {
+      try {
+        // Check if stock is available and reserve it atomically
+        const result = await this.variantRepository
+          .createQueryBuilder()
+          .update('ProductVariant')
+          .set({
+            stockQuantity: () => `stock_quantity - ${item.quantity}`,
+            reservedQuantity: () =>
+              `COALESCE(reserved_quantity, 0) + ${item.quantity}`,
+          })
+          .where('id = :variantId', { variantId: item.variantId })
+          .andWhere('stock_quantity >= :quantity', { quantity: item.quantity })
+          .execute();
+
+        if (result.affected === 0) {
+          // Get current stock for error message
+          const variant = await this.variantRepository.findOne({
+            where: { id: item.variantId },
+            relations: ['product'],
+          });
+
+          const productName = variant?.product?.name || 'Unknown Product';
+          throw new BadRequestException(
+            `Insufficient stock for "${productName}". Available: ${variant?.stockQuantity || 0}, Requested: ${item.quantity}`,
+          );
+        }
+      } catch (error) {
+        // If stock reservation fails, rollback any previously reserved items
+        await this.rollbackStockReservation(
+          items.slice(0, items.indexOf(item)),
+        );
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Rollback stock reservation in case of failure
+   */
+  private async rollbackStockReservation(
+    items: CreateOrderItemDto[],
+  ): Promise<void> {
+    this.logger.warn('Rolling back stock reservations due to failure');
+
+    for (const item of items) {
+      await this.variantRepository
+        .createQueryBuilder()
+        .update('ProductVariant')
+        .set({
+          stockQuantity: () => `stock_quantity + ${item.quantity}`,
+          reservedQuantity: () =>
+            `GREATEST(COALESCE(reserved_quantity, 0) - ${item.quantity}, 0)`,
+        })
+        .where('id = :variantId', { variantId: item.variantId })
+        .execute();
+    }
+  }
+
+  /**
+   * Confirm stock reduction after successful payment
+   */
+  async confirmStockReduction(orderId: string): Promise<void> {
+    this.logger.log(`Confirming stock reduction for order ${orderId}`);
+
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items', 'items.variant'],
+    });
+
+    if (!order?.items) {
+      throw new NotFoundException(`Order ${orderId} not found or has no items`);
+    }
+
+    for (const item of order.items) {
+      // Remove from reserved quantity (stock was already deducted during reservation)
+      await this.variantRepository
+        .createQueryBuilder()
+        .update('ProductVariant')
+        .set({
+          reservedQuantity: () =>
+            `GREATEST(COALESCE(reserved_quantity, 0) - ${item.quantity}, 0)`,
+        })
+        .where('id = :variantId', { variantId: item.variant.id })
+        .execute();
+    }
+  }
+
+  /**
+   * Release reserved stock if payment fails or order is cancelled
+   */
+  async releaseReservedStock(orderId: string): Promise<void> {
+    this.logger.log(`Releasing reserved stock for order ${orderId}`);
+
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items', 'items.variant'],
+    });
+
+    if (!order?.items) {
+      throw new NotFoundException(`Order ${orderId} not found or has no items`);
+    }
+
+    for (const item of order.items) {
+      // Restore stock and remove from reserved
+      await this.variantRepository
+        .createQueryBuilder()
+        .update('ProductVariant')
+        .set({
+          stockQuantity: () => `stock_quantity + ${item.quantity}`,
+          reservedQuantity: () =>
+            `GREATEST(COALESCE(reserved_quantity, 0) - ${item.quantity}, 0)`,
+        })
+        .where('id = :variantId', { variantId: item.variant.id })
+        .execute();
+    }
   }
 }

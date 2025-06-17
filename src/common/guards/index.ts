@@ -1,3 +1,4 @@
 // Common guards barrel exports
 export { JwtAuthGuard } from './jwt-auth.guard';
 export { RolesGuard } from './roles.guard';
+export { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';

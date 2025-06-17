@@ -2,11 +2,10 @@ import {
   Controller,
   Post,
   Body,
+  Logger,
   Get,
   Param,
-  Query,
   UseGuards,
-  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,12 +14,22 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
-import { PayPalTestService } from './services/paypal-test.service';
-import { CreatePaymentDto } from './dto/create-payment.dto';
 import { PaymentMethod } from 'src/common/constants/payment-method.enum';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { BaseResponseDto } from 'src/common/dto/base-response.dto';
-import { PaginatedResponseDto } from 'src/common/dto/paginated-response.dto';
+import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from 'src/common/guards/optional-jwt-auth.guard';
+
+interface CreatePaymentDto {
+  orderId: string;
+  method: PaymentMethod;
+  amount: number;
+  note?: string;
+}
+
+interface CapturePayPalDto {
+  paypalOrderId: string;
+  orderId: string;
+}
 
 @ApiTags('Payments')
 @Controller('payments')
@@ -28,25 +37,33 @@ export class PaymentsController {
   private readonly logger = new Logger(PaymentsController.name);
 
   constructor(private readonly paymentsService: PaymentsService) {}
+
   @Post()
-  @ApiOperation({
-    summary:
-      'Create a new payment (supports both guest and authenticated users)',
-  })
+  @UseGuards(OptionalJwtAuthGuard) // Allow both guest and authenticated users
+  @ApiOperation({ summary: 'Create a new payment' })
   @ApiResponse({ status: 201, description: 'Payment created successfully' })
   async create(
     @Body() createPaymentDto: CreatePaymentDto,
   ): Promise<BaseResponseDto> {
-    const payment = await this.paymentsService.create(createPaymentDto);
-    return {
-      message: 'Payment created successfully',
-      data: payment,
-      meta: {
-        timestamp: new Date().toISOString(),
-      },
-    };
+    try {
+      this.logger.log('Creating payment:', createPaymentDto);
+      const result = await this.paymentsService.createPayment(createPaymentDto);
+
+      return {
+        message: 'Payment created successfully',
+        data: result,
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      this.logger.error('Error creating payment:', error);
+      throw error;
+    }
   }
+
   @Post('paypal/create-order')
+  @UseGuards(OptionalJwtAuthGuard) // Allow both guest and authenticated users
   @ApiOperation({ summary: 'Create PayPal order' })
   @ApiResponse({
     status: 201,
@@ -61,130 +78,76 @@ export class PaymentsController {
     },
   ): Promise<BaseResponseDto> {
     try {
-      this.logger.log('=== Creating PayPal order ===');
-      this.logger.log(
-        'Request payload:',
-        JSON.stringify(createOrderDto, null, 2),
-      );
-
-      const result = await this.paymentsService.create({
+      this.logger.log('Creating PayPal order:', createOrderDto);
+      const result = await this.paymentsService.createPayment({
         orderId: createOrderDto.orderId,
         method: PaymentMethod.PAYPAL,
         amount: createOrderDto.amount,
         note: 'PayPal payment',
       });
 
-      this.logger.log(
-        'PaymentsService result:',
-        JSON.stringify(result, null, 2),
-      );
-
-      // Check if result has paypalOrderId (PayPal payment) or is regular payment
-      if ('paypalOrderId' in result) {
-        this.logger.log('✅ PayPal order created successfully');
-        return {
-          message: 'PayPal order created successfully',
-          data: {
-            paypalOrderId: result.paypalOrderId,
-            status: result.status,
-            orderId: result.orderId,
-          },
-          meta: {
-            timestamp: new Date().toISOString(),
-          },
-        };
-      } else {
-        this.logger.log('✅ Regular payment created successfully');
-        return {
-          message: 'Payment created successfully',
-          data: result,
-          meta: {
-            timestamp: new Date().toISOString(),
-          },
-        };
-      }
-    } catch (error) {
-      this.logger.error('❌ Error in createPayPalOrder:');
-      this.logger.error('Error name:', error.name);
-      this.logger.error('Error message:', error.message);
-      this.logger.error('Error stack:', error.stack);
-      throw error;
-    }
-  }
-
-  @Post('paypal/capture-order')
-  @ApiOperation({ summary: 'Capture PayPal payment' })
-  @ApiResponse({
-    status: 200,
-    description: 'PayPal payment captured successfully',
-  })
-  async capturePayPalOrder(
-    @Body() captureDto: { paypalOrderId: string; orderId: string },
-  ): Promise<BaseResponseDto> {
-    this.logger.log('Capturing PayPal payment');
-    const payment = await this.paymentsService.handlePayPalCallback(captureDto);
-    return {
-      message: 'PayPal payment captured successfully',
-      data: payment,
-      meta: {
-        timestamp: new Date().toISOString(),
-      },
-    };
-  }
-
-  @Get()
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get all payments' })
-  async findAll(
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10,
-  ): Promise<PaginatedResponseDto> {
-    const result = await this.paymentsService.findAll(page, limit);
-    return {
-      message: 'Payments retrieved successfully',
-      data: result.data,
-      meta: {
-        ...result.meta,
-        totalPages: Math.ceil(result.meta.total / result.meta.limit),
-        timestamp: new Date().toISOString(),
-      },
-    };
-  }
-
-  @Get(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get payment by ID' })
-  async findOne(@Param('id') id: string): Promise<BaseResponseDto> {
-    const payment = await this.paymentsService.findOne(id);
-    return {
-      message: 'Payment found successfully',
-      data: payment,
-      meta: {
-        timestamp: new Date().toISOString(),
-      },
-    };
-  }
-
-  @Get('paypal/test')
-  @ApiOperation({ summary: 'Test PayPal service and credentials' })
-  async testPayPal(): Promise<BaseResponseDto> {
-    try {
-      this.logger.log('=== Testing PayPal Service ===');
-
-      // Test basic PayPal service initialization
-      const testResult = await this.paymentsService.testPayPalService();
-
       return {
-        message: 'PayPal service test completed',
-        data: testResult,
+        message: 'PayPal order created successfully',
+        data: result,
         meta: {
           timestamp: new Date().toISOString(),
         },
       };
     } catch (error) {
-      this.logger.error('❌ PayPal test failed:', error);
+      this.logger.error('Error creating PayPal order:', error);
+      throw error;
+    }
+  }
+
+  @Post('paypal/capture-order')
+  @UseGuards(OptionalJwtAuthGuard) // Allow both guest and authenticated users
+  @ApiOperation({ summary: 'Capture PayPal order' })
+  @ApiResponse({
+    status: 200,
+    description: 'PayPal order captured successfully',
+  })
+  async capturePayPalOrder(
+    @Body() captureDto: CapturePayPalDto,
+  ): Promise<BaseResponseDto> {
+    try {
+      this.logger.log('Capturing PayPal order:', captureDto);
+      const result = await this.paymentsService.capturePayPalPayment(
+        captureDto.paypalOrderId,
+        captureDto.orderId,
+      );
+
+      return {
+        message: 'PayPal order captured successfully',
+        data: result,
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      this.logger.error('Error capturing PayPal order:', error);
+      throw error;
+    }
+  }
+
+  @Get('order/:orderId')
+  @UseGuards(OptionalJwtAuthGuard) // Allow both guest and authenticated users
+  @ApiOperation({ summary: 'Get payment by order ID' })
+  @ApiResponse({ status: 200, description: 'Payment retrieved successfully' })
+  async getByOrderId(
+    @Param('orderId') orderId: string,
+  ): Promise<BaseResponseDto> {
+    try {
+      const payment = await this.paymentsService.findByOrderId(orderId);
+
+      return {
+        message: 'Payment retrieved successfully',
+        data: payment,
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      this.logger.error('Error retrieving payment:', error);
       throw error;
     }
   }

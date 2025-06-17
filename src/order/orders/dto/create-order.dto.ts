@@ -1,77 +1,126 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsEmail,
-  IsNumber,
-  IsOptional,
-  ValidateNested,
-  IsArray,
-  Min,
-} from 'class-validator';
+import { IsNotEmpty, IsString, IsNumber, IsOptional, IsEmail, IsArray, ValidateNested, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class CreateOrderItemDto {
-  @IsString()
+export class OrderItemDto {
   @IsNotEmpty()
+  @IsString()
   variantId: string;
 
+  @IsNotEmpty()
   @IsNumber()
   @Min(1)
   quantity: number;
 
+  @IsNotEmpty()
   @IsNumber()
   @Min(0)
   unitPrice: number;
 }
 
 export class CreateOrderDto {
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsString()
+  // Customer info (for both guest and user)
   @IsNotEmpty()
+  @IsString()
   customerName: string;
 
+  @IsNotEmpty()
   @IsEmail()
   customerEmail: string;
 
-  @IsString()
   @IsNotEmpty()
+  @IsString()
   customerPhone: string;
 
-  @IsString()
+  // Shipping address
   @IsNotEmpty()
-  shippingAddress: string;
+  @IsString()
+  recipientName: string;
 
+  @IsNotEmpty()
+  @IsString()
+  recipientPhone: string;
+
+  @IsNotEmpty()
+  @IsString()
+  streetAddress: string;
+
+  @IsNotEmpty()
+  @IsString()
+  ward: string;
+
+  @IsNotEmpty()
+  @IsString()
+  district: string;
+
+  @IsNotEmpty()
+  @IsString()
+  province: string;
+
+  @IsNotEmpty()
+  @IsString()
+  wardCode: string;
+
+  @IsNotEmpty()
+  @IsNumber()
+  districtId: number;
+
+  @IsNotEmpty()
+  @IsNumber()
+  provinceId: number;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  // Order items
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => CreateOrderItemDto)
-  items: CreateOrderItemDto[];
+  @Type(() => OrderItemDto)
+  items: OrderItemDto[];
+
+  // Payment method
+  @IsNotEmpty()
+  @IsString()
+  paymentMethod: 'paypal' | 'cod';
+
+  // Voucher (optional)
+  @IsOptional()
+  @IsString()
+  voucherCode?: string;
+
+  // User ID (optional, for logged-in users)
+  @IsOptional()
+  @IsString()
+  userId?: string;
+}
+
+export class PayPalCreateOrderDto {
+  @IsNotEmpty()
+  @IsString()
+  orderId: string;
+}
+
+export class PayPalCaptureOrderDto {
+  @IsNotEmpty()
+  @IsString()
+  orderId: string;
+
+  @IsNotEmpty()
+  @IsString()
+  paypalOrderId: string;
+}
+
+export class ValidateVoucherDto {
+  @IsNotEmpty()
+  @IsString()
+  voucherCode: string;
+
+  @IsNotEmpty()
+  @IsNumber()
+  @Min(0)
+  orderTotal: number;
 
   @IsOptional()
   @IsString()
-  voucherId?: string;
-
-  @IsNumber()
-  @Min(0)
-  subTotal: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  shippingFee?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  discount?: number;
-
-  @IsNumber()
-  @Min(0)
-  totalPrice: number;
-
-  @IsOptional()
-  @IsString()
-  note?: string;
+  userId?: string;
 }

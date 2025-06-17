@@ -20,8 +20,13 @@ import {
 } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateSimpleOrderDto } from './dto/create-simple-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
-import { JwtAuthGuard, RolesGuard } from 'src/common/guards';
+import {
+  JwtAuthGuard,
+  RolesGuard,
+  OptionalJwtAuthGuard,
+} from 'src/common/guards';
 import { Roles } from 'src/common/decorators';
 import { UserRole } from 'src/common/constants/user-role.enum';
 import { BaseResponseDto } from 'src/common/dto/base-response.dto';
@@ -39,8 +44,8 @@ interface AuthenticatedRequest extends Request {
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
-
   @Post()
+  @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({
     summary: 'Create a new order (supports both guest and authenticated users)',
   })
@@ -63,6 +68,30 @@ export class OrdersController {
       },
     };
   }
+
+  @Post('simple')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Create a simple order (guest and user friendly)' })
+  @ApiResponse({ status: 201, description: 'Order created successfully' })
+  async createSimple(
+    @Body() createOrderDto: CreateSimpleOrderDto,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<BaseResponseDto> {
+    // If user is authenticated and userId is not provided, set it from token
+    if (req.user && !createOrderDto.userId) {
+      createOrderDto.userId = req.user.id;
+    }
+
+    const order = await this.ordersService.createSimpleOrder(createOrderDto);
+    return {
+      message: 'Order created successfully',
+      data: order,
+      meta: {
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
   @Get()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

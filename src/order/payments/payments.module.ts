@@ -1,23 +1,16 @@
-import { Module, forwardRef } from '@nestjs/common';
-import { PaymentsService } from './payments.service';
-import { PaymentsController } from './payments.controller';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
 import { Payment } from './entities/payment.entity';
-import { Order } from '../orders/entities/order.entity';
+import { SimplePaymentsController } from './controllers/simple-payments.controller';
+import { SimplePaymentsService } from './services/simple-payments.service';
+import { SimplePayPalService } from './services/simple-paypal.service';
 import { OrdersModule } from '../orders/orders.module';
-import { NotificationsModule } from '../../notification/notifications/notifications.module';
-import { MailModule } from '../../common/services/mail/mail.module';
-import { PayPalService } from './services/paypal.service';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Payment, Order]),
-    forwardRef(() => OrdersModule),
-    NotificationsModule,
-    MailModule,
-  ],
-  controllers: [PaymentsController],
-  providers: [PaymentsService, PayPalService],
-  exports: [PaymentsService],
+  imports: [TypeOrmModule.forFeature([Payment]), ConfigModule, OrdersModule],
+  controllers: [SimplePaymentsController],
+  providers: [SimplePaymentsService, SimplePayPalService],
+  exports: [TypeOrmModule, SimplePaymentsService],
 })
 export class PaymentsModule {}
