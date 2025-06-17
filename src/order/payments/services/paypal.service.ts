@@ -45,6 +45,14 @@ const SUPPORTED_CURRENCIES = [
 // Exchange rate VND to USD (should be from a real exchange rate API in production)
 const VND_TO_USD_RATE = 0.000041; // 1 VND = 0.000041 USD (approximate)
 
+// PayPal minimum amounts per currency
+const PAYPAL_MIN_AMOUNTS = {
+  USD: 0.5, // $0.50 minimum
+  EUR: 0.5,
+  GBP: 0.3,
+  JPY: 50,
+};
+
 export interface PayPalOrderResponse {
   paypalOrderId: string;
   status: string;
@@ -133,6 +141,16 @@ export class PayPalService {
       if (currency.toUpperCase() === 'VND') {
         const usdAmount = Math.round(amount * VND_TO_USD_RATE * 100) / 100; // Round to 2 decimal places
         this.logger.log(`Converting ${amount} VND to ${usdAmount} USD`);
+
+        // Check minimum amount for USD
+        if (usdAmount < PAYPAL_MIN_AMOUNTS.USD) {
+          this.logger.warn(
+            `Converted amount ${usdAmount} USD is below minimum ${PAYPAL_MIN_AMOUNTS.USD} USD`,
+          );
+          // Use minimum amount but log the issue
+          return { amount: PAYPAL_MIN_AMOUNTS.USD, currency: 'USD' };
+        }
+
         return { amount: usdAmount, currency: 'USD' };
       }
 
@@ -141,6 +159,12 @@ export class PayPalService {
       this.logger.warn(
         `Unknown currency ${currency}, converting ${amount} to ${usdAmount} USD using default rate`,
       );
+
+      // Check minimum amount
+      if (usdAmount < PAYPAL_MIN_AMOUNTS.USD) {
+        return { amount: PAYPAL_MIN_AMOUNTS.USD, currency: 'USD' };
+      }
+
       return { amount: usdAmount, currency: 'USD' };
     }
 

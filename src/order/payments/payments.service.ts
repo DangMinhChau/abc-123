@@ -84,7 +84,6 @@ export class PaymentsService {
       throw error;
     }
   }
-
   async createPayPalPayment(
     payment: Payment,
     createPaymentDto: CreatePaymentDto,
@@ -92,10 +91,15 @@ export class PaymentsService {
     try {
       const orderId = payment.order.id;
       const amount = payment.amount;
+
+      this.logger.log(
+        `Creating PayPal payment for order ${orderId} with amount ${amount} VND`,
+      );
+
       const paypalOrder = await this.paypalService.createOrder({
         orderId,
         amount,
-        currency: 'VND',
+        currency: 'VND', // Will be converted to USD in PayPalService
         description: `Payment for order ${orderId}`,
       });
 
@@ -105,7 +109,7 @@ export class PaymentsService {
       });
 
       this.logger.log(
-        `Created PayPal order ${paypalOrder.paypalOrderId} for order ${orderId}`,
+        `✅ Created PayPal order ${paypalOrder.paypalOrderId} for order ${orderId}`,
       );
 
       return {
@@ -114,8 +118,22 @@ export class PaymentsService {
         orderId,
       };
     } catch (error) {
-      this.logger.error('Error creating PayPal payment:', error);
-      throw new BadRequestException('Failed to create PayPal payment');
+      this.logger.error('❌ Error creating PayPal payment:', error);
+
+      // Log more details about the error
+      if (error.name) {
+        this.logger.error('Error name:', error.name);
+      }
+      if (error.message) {
+        this.logger.error('Error message:', error.message);
+      }
+      if (error.stack) {
+        this.logger.error('Error stack:', error.stack);
+      }
+
+      throw new BadRequestException(
+        `Failed to create PayPal payment: ${error.message}`,
+      );
     }
   }
 
