@@ -26,6 +26,22 @@ export class Address extends BaseEntity {
   @Column({ length: 50 })
   province: string;
 
+  // GHN specific fields
+  @Column({ nullable: true, type: 'int' })
+  ghnProvinceId: number;
+
+  @Column({ nullable: true, type: 'int' })
+  ghnDistrictId: number;
+
+  @Column({ nullable: true, length: 20 })
+  ghnWardCode: string;
+
+  @Column({ nullable: true, length: 10 })
+  ghnProvinceCode: string;
+
+  @Column({ nullable: true, length: 10 })
+  ghnDistrictCode: string;
+
   @Column({ default: false })
   isDefault: boolean;
 }

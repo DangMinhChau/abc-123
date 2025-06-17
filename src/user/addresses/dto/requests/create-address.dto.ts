@@ -83,4 +83,47 @@ export class CreateAddressDto {
   @IsOptional()
   @IsBoolean({ message: 'Địa chỉ mặc định phải là true hoặc false' })
   isDefault?: boolean = false;
+
+  @ApiProperty({
+    description: 'GHN Province ID',
+    example: 202,
+    required: false,
+  })
+  @IsOptional()
+  ghnProvinceId?: number;
+
+  @ApiProperty({
+    description: 'GHN District ID',
+    example: 1442,
+    required: false,
+  })
+  @IsOptional()
+  ghnDistrictId?: number;
+
+  @ApiProperty({
+    description: 'GHN Ward Code',
+    example: '21211',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  ghnWardCode?: string;
+
+  @ApiProperty({
+    description: 'GHN Province Code',
+    example: 'HCM',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  ghnProvinceCode?: string;
+
+  @ApiProperty({
+    description: 'GHN District Code',
+    example: '1442',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  ghnDistrictCode?: string;
 }
