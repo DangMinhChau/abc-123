@@ -41,8 +41,7 @@ export class OrdersService {
     @InjectRepository(ProductVariant)
     private variantRepository: Repository<ProductVariant>,
     private paypalService: PayPalService,
-  ) {}
-  async createOrder(createOrderDto: CreateOrderDto): Promise<Order> {
+  ) {}  async createOrder(createOrderDto: CreateOrderDto): Promise<Order> {
     const {
       customerName,
       customerEmail,
@@ -56,6 +55,7 @@ export class OrdersService {
       note,
       userId,
       voucherId,
+      voucherCode,
     } = createOrderDto;
 
     // Validate user if provided
@@ -115,7 +115,7 @@ export class OrdersService {
     }
 
     // Generate order number
-    const orderNumber = await this.generateOrderNumber(); // Create order
+    const orderNumber = await this.generateOrderNumber();    // Create order
     const order = this.orderRepository.create({
       orderNumber,
       user,
@@ -125,7 +125,7 @@ export class OrdersService {
       shippingAddress,
       subTotal,
       shippingFee,
-      discount,
+      discount: discount || 0,
       totalPrice,
       note,
       voucher: voucher || undefined,
@@ -147,9 +147,7 @@ export class OrdersService {
       }),
     );
 
-    await this.orderItemRepository.save(orderItems);
-
-    // Create payment record (default COD)
+    await this.orderItemRepository.save(orderItems);    // Create payment record (default COD)
     const payment = this.paymentRepository.create({
       order: savedOrder,
       method: PaymentMethod.COD,

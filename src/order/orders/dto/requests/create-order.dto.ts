@@ -13,16 +13,19 @@ import { Type } from 'class-transformer';
 import { CreateOrderItemDto } from './create-order-item.dto';
 
 export class CreateOrderDto {
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  customerName: string;
+  customerName?: string;
 
+  @IsOptional()
   @IsEmail()
-  customerEmail: string;
+  customerEmail?: string;
 
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  customerPhone: string;
+  customerPhone?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -32,7 +35,6 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => CreateOrderItemDto)
   items: CreateOrderItemDto[];
-
   @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   @Type(() => Number)
@@ -43,10 +45,11 @@ export class CreateOrderDto {
   @Type(() => Number)
   shippingFee: number;
 
+  @IsOptional()
   @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   @Type(() => Number)
-  discount: number;
+  discount?: number;
 
   @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
@@ -64,4 +67,12 @@ export class CreateOrderDto {
   @IsOptional()
   @IsUUID()
   voucherId?: string;
+
+  @IsOptional()
+  @IsString()
+  voucherCode?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
 }
