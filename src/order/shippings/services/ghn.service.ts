@@ -164,7 +164,6 @@ export class GhnService {
       );
     }
   }
-
   async calculateShippingFee(params: {
     to_district_id: number;
     to_ward_code: string;
@@ -175,32 +174,60 @@ export class GhnService {
     service_type_id?: number;
   }): Promise<GHNShippingFee> {
     try {
+      // Validate configuration
+      if (!this.ghnToken || !this.shopId) {
+        throw new HttpException(
+          'GHN configuration is missing (token or shop ID)',
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      }
+
+      // Log request params for debugging
+      console.log('GHN Shipping Fee Request Params:', {
+        service_type_id: params.service_type_id || 2,
+        from_district_id: this.fromDistrictId,
+        to_district_id: params.to_district_id,
+        to_ward_code: params.to_ward_code,
+        height: params.height,
+        length: params.length,
+        weight: params.weight,
+        width: params.width,
+      });
+
+      const requestBody = {
+        service_type_id: params.service_type_id || 2, // Standard service
+        from_district_id: this.fromDistrictId,
+        to_district_id: params.to_district_id,
+        to_ward_code: params.to_ward_code,
+        height: params.height,
+        length: params.length,
+        weight: params.weight,
+        width: params.width,
+      };
+
       const response = await fetch(`${this.ghnApiUrl}/v2/shipping-order/fee`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({
-          service_type_id: params.service_type_id || 2, // Standard service
-          from_district_id: this.fromDistrictId,
-          to_district_id: params.to_district_id,
-          to_ward_code: params.to_ward_code,
-          height: params.height,
-          length: params.length,
-          weight: params.weight,
-          width: params.width,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const result = await response.json();
+      console.log('GHN Shipping Fee Response:', result);
 
       if (result.code === 200) {
         return result.data;
       } else {
+        console.error('GHN API Error:', result);
         throw new HttpException(
-          `GHN API Error: ${result.message}`,
+          `GHN API Error: ${result.message || 'Unknown error'}`,
           HttpStatus.BAD_REQUEST,
         );
       }
     } catch (error) {
+      console.error('Calculate shipping fee error:', error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
       throw new HttpException(
         'Failed to calculate shipping fee',
         HttpStatus.INTERNAL_SERVER_ERROR,

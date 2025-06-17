@@ -63,23 +63,115 @@ export class GhnController {
       height?: number;
     },
   ): Promise<BaseResponseDto<any>> {
-    // Provide default values for required fields
-    const params = {
-      to_district_id: calculateShippingDto.to_district_id,
-      to_ward_code: calculateShippingDto.to_ward_code,
-      weight: calculateShippingDto.weight,
-      length: calculateShippingDto.length || 20, // Default 20cm
-      width: calculateShippingDto.width || 15, // Default 15cm
-      height: calculateShippingDto.height || 10, // Default 10cm
-    };
-    const data = await this.ghnService.calculateShippingFee(params);
-    return {
-      message: 'Shipping fee calculated successfully',
-      data,
-      meta: {
-        timestamp: new Date().toISOString(),
-      },
-    };
+    try {
+      // Validate required fields
+      if (!calculateShippingDto.to_district_id) {
+        return {
+          message: 'Missing to_district_id',
+          data: null,
+          meta: {
+            timestamp: new Date().toISOString(),
+            error: 'INVALID_DISTRICT_ID',
+          },
+        };
+      }
+
+      if (!calculateShippingDto.to_ward_code) {
+        return {
+          message: 'Missing to_ward_code',
+          data: null,
+          meta: {
+            timestamp: new Date().toISOString(),
+            error: 'INVALID_WARD_CODE',
+          },
+        };
+      }
+
+      if (!calculateShippingDto.weight || calculateShippingDto.weight <= 0) {
+        return {
+          message: 'Invalid weight',
+          data: null,
+          meta: {
+            timestamp: new Date().toISOString(),
+            error: 'INVALID_WEIGHT',
+          },
+        };
+      }
+
+      // Provide default values for required fields
+      const params = {
+        to_district_id: calculateShippingDto.to_district_id,
+        to_ward_code: calculateShippingDto.to_ward_code,
+        weight: calculateShippingDto.weight,
+        length: calculateShippingDto.length || 20, // Default 20cm
+        width: calculateShippingDto.width || 15, // Default 15cm
+        height: calculateShippingDto.height || 10, // Default 10cm
+      };
+
+      console.log('Calculating shipping fee with params:', params);
+
+      const data = await this.ghnService.calculateShippingFee(params);
+      return {
+        message: 'Shipping fee calculated successfully',
+        data,
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      console.error('Shipping fee calculation error:', error);
+      return {
+        message: error.message || 'Failed to calculate shipping fee',
+        data: null,
+        meta: {
+          timestamp: new Date().toISOString(),
+          error: 'SHIPPING_FEE_ERROR',
+        },
+      };
+    }
+  }
+  @Get('test')
+  @ApiOperation({ summary: 'Test GHN configuration' })
+  async testGhnConfiguration(): Promise<BaseResponseDto<any>> {
+    try {
+      console.log('Testing GHN configuration...');
+
+      // Test with sample data for Ho Chi Minh City
+      const testParams = {
+        to_district_id: 1442, // Quan 1, TPHCM
+        to_ward_code: '21211', // Phuong Ben Nghe
+        weight: 500, // 500g
+        length: 20,
+        width: 15,
+        height: 10,
+      };
+
+      console.log('Test params:', testParams);
+      const data = await this.ghnService.calculateShippingFee(testParams);
+
+      return {
+        message: 'GHN test successful',
+        data: {
+          testParams,
+          result: data,
+        },
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      console.error('GHN test error:', error);
+      return {
+        message: 'GHN test failed',
+        data: {
+          error: error.message || 'Unknown error',
+        },
+        meta: {
+          timestamp: new Date().toISOString(),
+          error: 'GHN_TEST_ERROR',
+        },
+      };
+    }
   }
 
   @Get('services')
