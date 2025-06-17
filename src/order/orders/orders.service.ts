@@ -43,149 +43,176 @@ export class OrdersService {
     private paypalService: PayPalService,
   ) {}
   async createOrder(createOrderDto: CreateOrderDto): Promise<Order> {
-    const {
-      customerName,
-      customerEmail,
-      customerPhone,
-      shippingAddress,
-      items,
-      subTotal,
-      shippingFee,
-      discount,
-      totalPrice,
-      note,
-      userId,
-      voucherId,
-      voucherCode,
-    } = createOrderDto;
-
-    // Validate user if provided
-    let user: User | null = null;
-    if (userId) {
-      user = await this.userRepository.findOne({ where: { id: userId } });
-      if (!user) {
-        throw new NotFoundException(
-          `Không tìm thấy người dùng với ID: ${userId}`,
-        );
-      }
-    }
-
-    // Validate voucher if provided
-    let voucher: Voucher | null = null;
-    if (voucherId) {
-      voucher = await this.voucherRepository.findOne({
-        where: { id: voucherId },
-      });
-      if (!voucher) {
-        throw new NotFoundException(
-          `Không tìm thấy voucher với ID: ${voucherId}`,
-        );
-      }
-    }
-
-    // Validate variants and check stock
-    const validatedItems: Array<{
-      variant: ProductVariant;
-      quantity: number;
-      unitPrice: number;
-    }> = [];
-    for (const item of items) {
-      const variant = await this.variantRepository.findOne({
-        where: { id: item.variantId },
-        relations: ['product'],
-      });
-
-      if (!variant) {
-        throw new NotFoundException(
-          `Không tìm thấy variant với ID: ${item.variantId}`,
-        );
-      }
-
-      if (variant.stockQuantity < item.quantity) {
-        throw new BadRequestException(
-          `Không đủ hàng trong kho cho sản phẩm ${variant.product?.name}. ` +
-            `Còn lại: ${variant.stockQuantity}, yêu cầu: ${item.quantity}`,
-        );
-      }
-
-      validatedItems.push({
-        variant,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-      });
-    }
-
-    // Generate order number
-    const orderNumber = await this.generateOrderNumber(); // Create order
-    const order = this.orderRepository.create({
-      orderNumber,
-      user,
-      customerName,
-      customerEmail,
-      customerPhone,
-      shippingAddress,
-      subTotal,
-      shippingFee,
-      discount: discount || 0,
-      totalPrice,
-      note,
-      voucher: voucher || undefined,
-      status: OrderStatus.PENDING,
-    });
-
-    // Save order first to get ID
-    const savedOrder = await this.orderRepository.save(order); // Create order items
-    const orderItems = validatedItems.map(({ variant, quantity, unitPrice }) =>
-      this.orderItemRepository.create({
-        order: savedOrder,
-        variant,
-        quantity,
-        unitPrice,
-        productName: variant.product?.name || 'Unknown Product',
-        variantSku: variant.sku,
-        colorName: variant.color?.name || 'Unknown Color',
-        sizeName: variant.size?.name || 'Unknown Size',
-      }),
+    this.logger.log(
+      'Creating order with data:',
+      JSON.stringify(createOrderDto, null, 2),
     );
 
-    await this.orderItemRepository.save(orderItems); // Create payment record (default COD)
-    const payment = this.paymentRepository.create({
-      order: savedOrder,
-      method: PaymentMethod.COD,
-      amount: totalPrice,
-      status: PaymentStatus.UNPAID,
-    });
+    try {
+      const {
+        customerName,
+        customerEmail,
+        customerPhone,
+        shippingAddress,
+        items,
+        subTotal,
+        shippingFee,
+        discount,
+        totalPrice,
+        note,
+        userId,
+        voucherId,
+        voucherCode,
+      } = createOrderDto;
 
-    await this.paymentRepository.save(payment);
+      this.logger.log('Validating user...');
+      // Validate user if provided
+      let user: User | null = null;
+      if (userId) {
+        user = await this.userRepository.findOne({ where: { id: userId } });
+        if (!user) {
+          throw new NotFoundException(
+            `Không tìm thấy người dùng với ID: ${userId}`,
+          );
+        }
+      }
 
-    // Create shipping record
-    const shipping = this.shippingRepository.create({
-      order: savedOrder,
-      recipientName: customerName,
-      recipientPhone: customerPhone,
-      address: shippingAddress,
-      shippingFee,
-      status: ShippingStatus.PENDING,
-      // Default values for required fields
-      wardCode: '',
-      districtId: 0,
-      provinceId: 0,
-      ward: '',
-      district: '',
-      province: '',
-      shippingMethod: ShippingMethod.STANDARD,
-    });
+      this.logger.log('Validating voucher...');
+      // Validate voucher if provided
+      let voucher: Voucher | null = null;
+      if (voucherId) {
+        voucher = await this.voucherRepository.findOne({
+          where: { id: voucherId },
+        });
+        if (!voucher) {
+          throw new NotFoundException(
+            `Không tìm thấy voucher với ID: ${voucherId}`,
+          );
+        }
+      }
 
-    await this.shippingRepository.save(shipping);
+      this.logger.log('Validating variants and stock...');
+      // Validate variants and check stock
+      const validatedItems: Array<{
+        variant: ProductVariant;
+        quantity: number;
+        unitPrice: number;
+      }> = [];
+      for (const item of items) {
+        const variant = await this.variantRepository.findOne({
+          where: { id: item.variantId },
+          relations: ['product'],
+        });
 
-    // Update variant stock
-    for (const { variant, quantity } of validatedItems) {
-      variant.stockQuantity -= quantity;
-      await this.variantRepository.save(variant);
+        if (!variant) {
+          throw new NotFoundException(
+            `Không tìm thấy variant với ID: ${item.variantId}`,
+          );
+        }
+
+        if (variant.stockQuantity < item.quantity) {
+          throw new BadRequestException(
+            `Không đủ hàng trong kho cho sản phẩm ${variant.product?.name}. ` +
+              `Còn lại: ${variant.stockQuantity}, yêu cầu: ${item.quantity}`,
+          );
+        }
+
+        validatedItems.push({
+          variant,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        });
+      }
+
+      this.logger.log('Generating order number...');
+      // Generate order number
+      const orderNumber = await this.generateOrderNumber();
+
+      this.logger.log('Creating order entity...');
+      // Create order
+      const order = this.orderRepository.create({
+        orderNumber,
+        user,
+        customerName,
+        customerEmail,
+        customerPhone,
+        shippingAddress,
+        subTotal,
+        shippingFee,
+        discount: discount || 0,
+        totalPrice,
+        note,
+        voucher: voucher || undefined,
+        status: OrderStatus.PENDING,
+      });
+
+      // Save order first to get ID
+      const savedOrder = await this.orderRepository.save(order);
+      this.logger.log(`Order saved with ID: ${savedOrder.id}`);
+
+      // Create order items
+      const orderItems = validatedItems.map(
+        ({ variant, quantity, unitPrice }) =>
+          this.orderItemRepository.create({
+            order: savedOrder,
+            variant,
+            quantity,
+            unitPrice,
+            productName: variant.product?.name || 'Unknown Product',
+            variantSku: variant.sku,
+            colorName: variant.color?.name || 'Unknown Color',
+            sizeName: variant.size?.name || 'Unknown Size',
+          }),
+      );
+
+      await this.orderItemRepository.save(orderItems);
+      this.logger.log('Order items saved');
+
+      // Create payment record (default COD)
+      const payment = this.paymentRepository.create({
+        order: savedOrder,
+        method: PaymentMethod.COD,
+        amount: totalPrice,
+        status: PaymentStatus.UNPAID,
+      });
+
+      await this.paymentRepository.save(payment);
+      this.logger.log('Payment record created');
+
+      // Create shipping record
+      const shipping = this.shippingRepository.create({
+        order: savedOrder,
+        recipientName: customerName,
+        recipientPhone: customerPhone,
+        address: shippingAddress,
+        shippingFee,
+        status: ShippingStatus.PENDING,
+        // Default values for required fields
+        wardCode: '',
+        districtId: 0,
+        provinceId: 0,
+        ward: '',
+        district: '',
+        province: '',
+        shippingMethod: ShippingMethod.STANDARD,
+      });
+
+      await this.shippingRepository.save(shipping);
+      this.logger.log('Shipping record created');
+
+      // Update variant stock
+      for (const { variant, quantity } of validatedItems) {
+        variant.stockQuantity -= quantity;
+        await this.variantRepository.save(variant);
+      }
+      this.logger.log('Variant stock updated');
+
+      // Return order with relations
+      return this.findOrderById(savedOrder.id);
+    } catch (error) {
+      this.logger.error('Error creating order:', error);
+      throw error;
     }
-
-    // Return order with relations
-    return this.findOrderById(savedOrder.id);
   }
 
   async findOrderById(id: string): Promise<Order> {
@@ -297,24 +324,34 @@ export class OrdersService {
     const sequence = String(count + 1).padStart(4, '0');
     return `ORD${year}${month}${day}${sequence}`;
   }
-
   async createOrderWithPayPal(createOrderDto: CreateOrderDto): Promise<{
     order: Order;
     approvalUrl: string;
   }> {
-    // First create the order (same as regular order but with PayPal payment method)
-    const order = await this.createOrder({
-      ...createOrderDto,
-      // Force PayPal payment method
-    });
+    this.logger.log(
+      'Creating PayPal order with data:',
+      JSON.stringify(createOrderDto, null, 2),
+    );
 
     try {
+      // First create the order (same as regular order but with PayPal payment method)
+      const order = await this.createOrder({
+        ...createOrderDto,
+        // Force PayPal payment method
+      });
+
+      this.logger.log(`Order created successfully with ID: ${order.id}`);
+
       // Create PayPal order
       const paypalOrder = await this.paypalService.createOrder(
         order.totalPrice,
         'VND',
         order.id,
-      ); // Update the payment record with PayPal transaction ID
+      );
+
+      this.logger.log(`PayPal order created: ${paypalOrder.id}`);
+
+      // Update the payment record with PayPal transaction ID
       const payment = await this.paymentRepository.findOne({
         where: { order: { id: order.id } },
       });
@@ -323,6 +360,9 @@ export class OrdersService {
         payment.transactionId = paypalOrder.id;
         payment.status = PaymentStatus.PENDING;
         await this.paymentRepository.save(payment);
+        this.logger.log(
+          `Payment updated with PayPal transaction ID: ${paypalOrder.id}`,
+        );
       }
 
       // Get approval URL from PayPal response
@@ -334,15 +374,21 @@ export class OrdersService {
         throw new Error('Không thể lấy link thanh toán PayPal');
       }
 
+      this.logger.log(`PayPal approval URL: ${approvalLink.href}`);
+
       return {
         order,
         approvalUrl: approvalLink.href,
       };
     } catch (error) {
-      // If PayPal order creation fails, we should cancel the created order
-      await this.orderRepository.update(order.id, {
-        status: OrderStatus.CANCELLED,
-      });
+      this.logger.error('PayPal order creation failed:', error);
+
+      // If we have an order ID, cancel it
+      if (error.order?.id) {
+        await this.orderRepository.update(error.order.id, {
+          status: OrderStatus.CANCELLED,
+        });
+      }
 
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
