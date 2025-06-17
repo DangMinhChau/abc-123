@@ -90,7 +90,6 @@ export class OrdersService {
           );
         }
       }
-
       this.logger.log('Validating variants and stock...');
       // Validate variants and check stock
       const validatedItems: Array<{
@@ -98,19 +97,30 @@ export class OrdersService {
         quantity: number;
         unitPrice: number;
       }> = [];
+
       for (const item of items) {
+        this.logger.log(`Checking variant: ${item.variantId}`);
+
         const variant = await this.variantRepository.findOne({
           where: { id: item.variantId },
-          relations: ['product'],
+          relations: ['product', 'color', 'size'],
         });
 
         if (!variant) {
+          this.logger.error(`Variant not found: ${item.variantId}`);
           throw new NotFoundException(
             `Không tìm thấy variant với ID: ${item.variantId}`,
           );
         }
 
+        this.logger.log(
+          `Variant found: ${variant.sku}, stock: ${variant.stockQuantity}`,
+        );
+
         if (variant.stockQuantity < item.quantity) {
+          this.logger.error(
+            `Insufficient stock for variant: ${item.variantId}`,
+          );
           throw new BadRequestException(
             `Không đủ hàng trong kho cho sản phẩm ${variant.product?.name}. ` +
               `Còn lại: ${variant.stockQuantity}, yêu cầu: ${item.quantity}`,
@@ -346,14 +356,18 @@ export class OrdersService {
     );
 
     try {
+      this.logger.log('=== Step 1: Creating internal order ===');
       // First create the order (same as regular order but with PayPal payment method)
       const order = await this.createOrder({
         ...createOrderDto,
         // Force PayPal payment method
       });
 
-      this.logger.log(`Order created successfully with ID: ${order.id}`);
+      this.logger.log(
+        `=== Step 2: Order created successfully with ID: ${order.id} ===`,
+      );
 
+      this.logger.log('=== Step 3: Creating PayPal order ===');
       // Create PayPal order
       const paypalOrder = await this.paypalService.createOrder(
         order.totalPrice,
@@ -361,7 +375,9 @@ export class OrdersService {
         order.id,
       );
 
-      this.logger.log(`PayPal order created: ${paypalOrder.id}`);
+      this.logger.log(
+        `=== Step 4: PayPal order created: ${paypalOrder.id} ===`,
+      );
 
       // Update the payment record with PayPal transaction ID
       const payment = await this.paymentRepository.findOne({

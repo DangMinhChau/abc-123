@@ -255,4 +255,63 @@ export class OrdersController {
       };
     }
   }
+
+  @Post('test-order-creation')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Test order creation (debug)' })
+  async testOrderCreation(
+    @Body() createOrderDto: CreateOrderDto,
+    @GetUser() user: User | null,
+  ): Promise<any> {
+    try {
+      console.log('=== DEBUG: Test Order Creation ===');
+      console.log('1. Input DTO:', JSON.stringify(createOrderDto, null, 2));
+      console.log(
+        '2. User:',
+        user ? { id: user.id, email: user.email } : 'Guest',
+      );
+
+      // Set userId if authenticated
+      if (user && !createOrderDto.userId) {
+        createOrderDto.userId = user.id;
+      }
+
+      console.log('3. Final DTO:', JSON.stringify(createOrderDto, null, 2));
+
+      // Test step 1: Create regular order
+      console.log('4. Testing regular order creation...');
+      const order = await this.ordersService.createOrder(createOrderDto);
+      console.log('5. Order created successfully:', {
+        id: order.id,
+        orderNumber: order.orderNumber,
+      });
+
+      return {
+        message: 'Test order creation successful',
+        data: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          totalPrice: order.totalPrice,
+        },
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      console.error('=== DEBUG: Test Order Creation Failed ===');
+      console.error('Error:', {
+        name: error?.constructor?.name,
+        message: error?.message,
+        stack: error?.stack?.split('\n').slice(0, 3),
+      });
+
+      return {
+        message: 'Test order creation failed',
+        error: error?.message || 'Unknown error',
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+  }
 }
