@@ -126,20 +126,23 @@ export class OrdersService {
 
       this.logger.log('Generating order number...');
       // Generate order number
-      const orderNumber = await this.generateOrderNumber();      this.logger.log('Creating order entity...');
-        // For authenticated users, use user info if customer info is not provided
-      const finalCustomerName = customerName || (user ? user.fullName || user.email : '');
+      const orderNumber = await this.generateOrderNumber();
+      this.logger.log('Creating order entity...');
+      // For authenticated users, use user info if customer info is not provided
+      const finalCustomerName =
+        customerName || (user ? user.fullName || user.email : '');
       const finalCustomerEmail = customerEmail || (user ? user.email : '');
-      const finalCustomerPhone = customerPhone || (user ? user.phoneNumber || '' : '');
-      
+      const finalCustomerPhone =
+        customerPhone || (user ? user.phoneNumber || '' : '');
+
       this.logger.log('Order customer info:', {
         finalCustomerName,
         finalCustomerEmail,
         finalCustomerPhone,
         fromUser: !!user,
-        originalValues: { customerName, customerEmail, customerPhone }
+        originalValues: { customerName, customerEmail, customerPhone },
       });
-      
+
       // Create order
       const order = this.orderRepository.create({
         orderNumber,
@@ -188,7 +191,7 @@ export class OrdersService {
       });
 
       await this.paymentRepository.save(payment);
-      this.logger.log('Payment record created');      // Create shipping record
+      this.logger.log('Payment record created'); // Create shipping record
       const shipping = this.shippingRepository.create({
         order: savedOrder,
         recipientName: finalCustomerName,
