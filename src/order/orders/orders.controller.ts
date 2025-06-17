@@ -73,18 +73,44 @@ export class OrdersController {
     @GetUser() user: User | null,
   ): Promise<BaseResponseDto<{ orderId: string; approvalUrl: string }>> {
     try {
+      console.log('=== PayPal Order Creation Started ===');
+      console.log('Raw request body:', JSON.stringify(createOrderDto, null, 2));
       console.log(
-        'PayPal Order Request:',
-        JSON.stringify(createOrderDto, null, 2),
+        'User from JWT:',
+        user ? `ID: ${user.id}, Email: ${user.email}` : 'Guest user',
       );
+
+      // Check PayPal configuration first
+      const configService =
+        this.ordersService['configService'] ||
+        this.ordersService['paypalService']['configService'];
+      const paypalClientId = configService?.get('PAYPAL_CLIENT_ID');
+      const paypalClientSecret = configService?.get('PAYPAL_CLIENT_SECRET');
+      console.log('PayPal Config Check:', {
+        clientIdExists: !!paypalClientId,
+        clientSecretExists: !!paypalClientSecret,
+        environment: configService?.get('PAYPAL_ENVIRONMENT') || 'not set',
+      });
 
       // Set userId from JWT if authenticated
       if (user && !createOrderDto.userId) {
         createOrderDto.userId = user.id;
+        console.log('UserId set from JWT:', user.id);
       }
+
+      console.log(
+        'Final DTO before service call:',
+        JSON.stringify(createOrderDto, null, 2),
+      );
 
       const result =
         await this.ordersService.createOrderWithPayPal(createOrderDto);
+
+      console.log('Service result:', {
+        orderId: result.order.id,
+        orderNumber: result.order.orderNumber,
+        approvalUrl: result.approvalUrl,
+      });
 
       return {
         message: 'Đã tạo đơn hàng PayPal thành công',
@@ -97,10 +123,15 @@ export class OrdersController {
         },
       };
     } catch (error) {
-      console.error('PayPal Order Creation Error:', error);
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      throw new Error(`Không thể tạo đơn hàng PayPal: ${errorMessage}`);
+      console.error('=== PayPal Order Creation Failed ===');
+      console.error('Error details:', {
+        name: error?.constructor?.name,
+        message: error?.message,
+        stack: error?.stack?.split('\n').slice(0, 5),
+      });
+
+      // Re-throw the original error to preserve stack trace
+      throw error;
     }
   }
 
@@ -191,5 +222,37 @@ export class OrdersController {
         totalPages: result.totalPages,
       },
     };
+  }
+
+  @Get('debug/paypal-config')
+  @ApiOperation({ summary: 'Debug PayPal configuration' })
+  async debugPayPalConfig(): Promise<any> {
+    try {
+      // Try to get PayPal service through the orders service
+      const paypalService = this.ordersService['paypalService'];
+
+      return {
+        message: 'PayPal configuration debug',
+        data: {
+          paypalServiceExists: !!paypalService,
+          paypalConfigured: paypalService?.isConfigured?.(),
+          environment: process.env.PAYPAL_ENVIRONMENT,
+          clientIdExists: !!process.env.PAYPAL_CLIENT_ID,
+          clientSecretExists: !!process.env.PAYPAL_CLIENT_SECRET,
+          frontendUrl: process.env.FRONTEND_URL,
+        },
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      return {
+        message: 'PayPal configuration debug failed',
+        error: error?.message || 'Unknown error',
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
   }
 }
