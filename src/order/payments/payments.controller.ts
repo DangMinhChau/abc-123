@@ -15,6 +15,7 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
+import { PayPalTestService } from './services/paypal-test.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { PaymentMethod } from 'src/common/constants/payment-method.enum';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';

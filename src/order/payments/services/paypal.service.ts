@@ -1,6 +1,8 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as paypal from '@paypal/checkout-server-sdk';
+
+// Import PayPal SDK properly
+const paypal = require('@paypal/checkout-server-sdk');
 
 export interface PayPalConfig {
   clientId: string;
@@ -79,10 +81,20 @@ export interface PayPalCaptureResponse {
 @Injectable()
 export class PayPalService {
   private readonly logger = new Logger(PayPalService.name);
-  private client: paypal.core.PayPalHttpClient;
+  private client: any;
+  private readonly MOCK_MODE: boolean;
 
   constructor(private readonly configService: ConfigService) {
-    this.initializeClient();
+    this.MOCK_MODE =
+      this.configService.get('PAYPAL_MOCK_MODE', 'false') === 'true';
+
+    if (this.MOCK_MODE) {
+      this.logger.warn(
+        '🚨 PayPal running in MOCK MODE - no real payments will be processed',
+      );
+    } else {
+      this.initializeClient();
+    }
   }
 
   private initializeClient(): void {
@@ -181,12 +193,33 @@ export class PayPalService {
         `Original amount: ${params.amount} ${params.currency || 'VND'}`,
       );
 
+      // Mock mode for testing
+      if (this.MOCK_MODE) {
+        this.logger.warn('🚨 Returning MOCK PayPal order');
+        return {
+          paypalOrderId: 'MOCK-' + Date.now() + '-' + params.orderId,
+          status: 'CREATED',
+          links: [
+            {
+              href: `https://www.sandbox.paypal.com/checkoutnow?token=MOCK-${Date.now()}`,
+              rel: 'approve',
+              method: 'GET',
+            },
+            {
+              href: 'https://api.sandbox.paypal.com/v2/checkout/orders/MOCK-ORDER',
+              rel: 'self',
+              method: 'GET',
+            },
+          ],
+        };
+      }
+
       // Convert currency if needed
       const { amount: convertedAmount, currency: paypalCurrency } =
         this.convertCurrencyForPayPal(params.amount, params.currency || 'VND');
 
       this.logger.log(`PayPal amount: ${convertedAmount} ${paypalCurrency}`);
-      const request = new (paypal as any).orders.OrdersCreateRequest();
+      const request = new paypal.orders.OrdersCreateRequest();
       request.prefer('return=representation');
       request.requestBody({
         intent: 'CAPTURE',
@@ -273,7 +306,7 @@ export class PayPalService {
   ): Promise<PayPalCaptureResponse> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
-      const request = new (paypal as any).orders.OrdersCaptureRequest(
+      const request = new paypal.orders.OrdersCaptureRequest(
         params.paypalOrderId,
       );
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
