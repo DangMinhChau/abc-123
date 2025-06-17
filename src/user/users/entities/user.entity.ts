@@ -1,17 +1,9 @@
 import { BaseEntity } from 'src/common/classes/base.entity';
-import {
-  BeforeInsert,
-  BeforeUpdate,
-  Column,
-  Entity,
-  OneToMany,
-  OneToOne,
-} from 'typeorm';
+import { BeforeInsert, BeforeUpdate, Column, Entity, OneToMany } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import { Address } from '../../addresses/entities/address.entity';
 import { Order } from 'src/order/orders/entities/order.entity';
 import { UserRole } from 'src/common/constants/user-role.enum';
-import { Cart } from 'src/cart/carts/entities/cart.entity';
 import { Review } from 'src/review/reviews/entities/review.entity';
 import * as bcrypt from 'bcryptjs';
 
@@ -41,12 +33,8 @@ export class User extends BaseEntity {
 
   @OneToMany(() => Address, (address) => address.user)
   addresses: Address[];
-
   @OneToMany(() => Order, (order) => order.user)
   orders: Order[];
-
-  @OneToOne(() => Cart, (cart) => cart.user)
-  cart: Cart;
 
   @OneToMany(() => Review, (review) => review.user)
   reviews: Review[];
