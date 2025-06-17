@@ -19,6 +19,7 @@ Frontend (Client) → Backend API → PayPal API
 **Endpoint:** `POST /api/orders`
 
 **Request Body:**
+
 ```json
 {
   "items": [
@@ -42,6 +43,7 @@ Frontend (Client) → Backend API → PayPal API
 ```
 
 **Response:**
+
 ```json
 {
   "message": "Đơn hàng được tạo thành công",
@@ -65,6 +67,7 @@ Frontend (Client) → Backend API → PayPal API
 **Endpoint:** `POST /api/payments/paypal/orders`
 
 **Request Body:**
+
 ```json
 {
   "orderId": "order-uuid",
@@ -74,11 +77,13 @@ Frontend (Client) → Backend API → PayPal API
 ```
 
 **PayPal Service Logic:**
+
 - Tự động chuyển đổi VND → USD (1 USD ≈ 24,000 VND)
 - 500,000 VND → 20.83 USD
 - Tạo PayPal order với USD amount
 
 **Response:**
+
 ```json
 {
   "message": "PayPal order tạo thành công",
@@ -98,6 +103,7 @@ Frontend (Client) → Backend API → PayPal API
 ### 3. PayPal Approval Flow
 
 **Client Side:**
+
 1. Frontend redirect user đến `approvalUrl`
 2. User login PayPal và approve payment
 3. PayPal redirect về success URL với `paypalOrderId`
@@ -107,6 +113,7 @@ Frontend (Client) → Backend API → PayPal API
 **Endpoint:** `POST /api/payments/paypal/capture`
 
 **Request Body:**
+
 ```json
 {
   "paypalOrderId": "paypal-order-id",
@@ -115,6 +122,7 @@ Frontend (Client) → Backend API → PayPal API
 ```
 
 **Backend Logic:**
+
 1. Call PayPal capture API
 2. Validate capture result
 3. Update payment status
@@ -122,6 +130,7 @@ Frontend (Client) → Backend API → PayPal API
 5. Create/update shipping record
 
 **Response:**
+
 ```json
 {
   "message": "Thanh toán PayPal thành công",
@@ -145,6 +154,7 @@ Frontend (Client) → Backend API → PayPal API
 **Endpoint:** `GET /api/payments/paypal/orders/{paypalOrderId}`
 
 **Response:**
+
 ```json
 {
   "message": "Lấy thông tin đơn thanh toán thành công",
@@ -165,6 +175,7 @@ Frontend (Client) → Backend API → PayPal API
 ## Database Schema Updates
 
 ### Orders Table
+
 ```sql
 - id (UUID, Primary Key)
 - order_number (String, Unique)
@@ -176,6 +187,7 @@ Frontend (Client) → Backend API → PayPal API
 ```
 
 ### Payments Table
+
 ```sql
 - id (UUID, Primary Key)
 - order_id (UUID, Foreign Key)
@@ -191,6 +203,7 @@ Frontend (Client) → Backend API → PayPal API
 ```
 
 ### Order Items Table
+
 ```sql
 - id (UUID, Primary Key)
 - order_id (UUID, Foreign Key)
@@ -205,6 +218,7 @@ Frontend (Client) → Backend API → PayPal API
 ```
 
 ### Shipping Table
+
 ```sql
 - id (UUID, Primary Key)
 - order_id (UUID, Foreign Key)
@@ -223,12 +237,14 @@ Frontend (Client) → Backend API → PayPal API
 ## Error Handling
 
 ### PayPal Errors
+
 1. **Insufficient Funds:** PayPal user không đủ tiền
 2. **Payment Declined:** Ngân hàng từ chối
 3. **Expired Order:** PayPal order quá hạn (3 hours)
 4. **Invalid Order:** Order không tồn tại
 
 ### System Errors
+
 1. **Stock Validation:** Kiểm tra tồn kho trước khi capture
 2. **Duplicate Capture:** Tránh capture cùng một order nhiều lần
 3. **Currency Conversion:** Handle lỗi chuyển đổi tiền tệ
@@ -244,6 +260,7 @@ Frontend (Client) → Backend API → PayPal API
 ## Configuration
 
 ### Environment Variables
+
 ```env
 PAYPAL_CLIENT_ID=your_client_id
 PAYPAL_CLIENT_SECRET=your_client_secret
@@ -252,6 +269,7 @@ PAYPAL_WEBHOOK_ID=your_webhook_id
 ```
 
 ### PayPal Webhook Events
+
 - `PAYMENT.CAPTURE.COMPLETED`
 - `PAYMENT.CAPTURE.DENIED`
 - `CHECKOUT.ORDER.APPROVED`
@@ -259,11 +277,13 @@ PAYPAL_WEBHOOK_ID=your_webhook_id
 ## Testing
 
 ### Test Cards (Sandbox)
+
 - **Success:** Use PayPal sandbox accounts
 - **Failure:** Use declined test accounts
 - **Insufficient Funds:** Use limited balance accounts
 
 ### Test Scenarios
+
 1. Successful payment flow
 2. Payment cancellation
 3. Payment failure
@@ -273,12 +293,14 @@ PAYPAL_WEBHOOK_ID=your_webhook_id
 ## Monitoring & Logging
 
 ### Key Metrics
+
 - Payment success rate
 - PayPal API response times
 - Currency conversion accuracy
 - Order completion rate
 
 ### Logs
+
 - All PayPal API calls
 - Payment status changes
 - Error conditions

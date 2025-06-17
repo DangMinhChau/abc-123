@@ -202,7 +202,7 @@ export class ProductsService {
   }
 
   /**
-   * Get product basic info for cart/wishlist display
+   * Get product basic info for cart display
    */
   async getProductBasicInfo(productId: string): Promise<{
     id: string;

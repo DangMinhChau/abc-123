@@ -13,10 +13,7 @@ import { ShippingModule } from './order/shippings/shipping.module';
 import { OrderItemsModule } from './order/order-items/order-items.module';
 import { CloudinaryModule } from './common/services/cloudinary/cloudinary.module';
 import { MailModule } from './common/services/mail/mail.module';
-import { WishlistsModule } from './cart/wishlists/wishlists.module';
 import { NotificationsModule } from './notification/notifications/notifications.module';
-import { CartsModule } from './cart/carts/carts.module';
-import { CartItemsModule } from './cart/cart-items/cart-items.module';
 import { ProductsModule } from 'src/product/products/products.module';
 import { SizesModule } from 'src/product/sizes/sizes.module';
 import { ColorsModule } from 'src/product/colors/colors.module';
@@ -59,8 +56,7 @@ import { AddressesModule } from 'src/user/addresses/addresses.module';
     ColorsModule,
     VariantsModule,
     // User-related modules
-    UsersModule,
-    //Order-related modules
+    UsersModule, //Order-related modules
     OrdersModule,
     PaymentsModule,
     ShippingModule,
@@ -71,9 +67,6 @@ import { AddressesModule } from 'src/user/addresses/addresses.module';
     AuthModule,
     AddressesModule,
     NotificationsModule,
-    CartsModule,
-    CartItemsModule,
-    WishlistsModule,
     VouchersModule,
   ],
   controllers: [AppController],

@@ -1,17 +1,10 @@
 import { Controller, Post, Body, Get, Param, UseGuards } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
 import { PayPalService } from './services/paypal.service';
 import { OptionalJwtAuthGuard } from '../../common/guards';
 import { BaseResponseDto } from '../../common/dto';
-import {
-  CreatePayPalOrderDto,
-  CapturePayPalOrderDto,
-} from './dto';
+import { CreatePayPalOrderDto, CapturePayPalOrderDto } from './dto';
 
 @ApiTags('Payments')
 @Controller('payments')
@@ -131,7 +124,8 @@ export class PaymentsController {
   @ApiResponse({
     status: 200,
     description: 'PayPal order details retrieved successfully',
-    type: BaseResponseDto,  })
+    type: BaseResponseDto,
+  })
   async getPayPalOrderDetails(
     @Param('paypalOrderId') paypalOrderId: string,
   ): Promise<BaseResponseDto<Record<string, unknown>>> {
