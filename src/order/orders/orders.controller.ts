@@ -98,6 +98,25 @@ export class OrdersController {
         console.log('UserId set from JWT:', user.id);
       }
 
+      // Validate required fields
+      console.log('Validating request data...');
+      if (!createOrderDto.items || createOrderDto.items.length === 0) {
+        throw new Error('No items in order');
+      }
+
+      if (!createOrderDto.customerName || !createOrderDto.customerEmail) {
+        throw new Error('Missing customer information');
+      }
+
+      if (
+        !createOrderDto.paymentMethod ||
+        createOrderDto.paymentMethod !== 'PAYPAL'
+      ) {
+        throw new Error('Invalid payment method for PayPal order');
+      }
+
+      console.log('Basic validation passed');
+
       console.log(
         'Final DTO before service call:',
         JSON.stringify(createOrderDto, null, 2),
@@ -259,23 +278,37 @@ export class OrdersController {
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: 'Test order creation (debug)' })
   async testOrderCreation(
-    @Body() createOrderDto: any, // Bypass validation to debug
+    @Body() createOrderDto: CreateOrderDto, // Bypass validation to debug
     @GetUser() user: User | null,
   ): Promise<any> {
-    try {
-      console.log('=== DEBUG: Test Order Creation ===');
-      console.log('1. Input DTO:', JSON.stringify(createOrderDto, null, 2));
-      console.log(
-        '2. User:',
-        user ? { id: user.id, email: user.email } : 'Guest',
-      );
+    console.log('=== TEST ORDER CREATION DEBUG ===');
+    console.log('Raw request body:', JSON.stringify(createOrderDto, null, 2));
 
+    // Log each field individually to see what's causing validation issues
+    console.log('userId:', createOrderDto.userId, typeof createOrderDto.userId);
+    console.log(
+      'voucherId:',
+      createOrderDto.voucherId,
+      typeof createOrderDto.voucherId,
+    );
+    console.log('items:', createOrderDto.items);
+
+    if (createOrderDto.items) {
+      createOrderDto.items.forEach((item, index) => {
+        console.log(`Item ${index}:`, {
+          variantId: item.variantId,
+          variantIdType: typeof item.variantId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        });
+      });
+    }
+
+    try {
       // Set userId if authenticated
       if (user && !createOrderDto.userId) {
         createOrderDto.userId = user.id;
       }
-
-      console.log('3. Final DTO:', JSON.stringify(createOrderDto, null, 2));
 
       // Test step 1: Create regular order
       console.log('4. Testing regular order creation...');
@@ -310,6 +343,41 @@ export class OrdersController {
         meta: {
           timestamp: new Date().toISOString(),
         },
+      };
+    }
+  }
+
+  @Get('debug/validate-variant/:variantId')
+  @ApiOperation({ summary: 'Debug endpoint to validate variant' })
+  async validateVariant(@Param('variantId', ParseUUIDPipe) variantId: string) {
+    try {
+      // Check if variant exists
+      const variant = await this.ordersService['variantRepository'].findOne({
+        where: { id: variantId },
+        relations: ['product', 'color', 'size'],
+      });
+
+      return {
+        message: 'Variant validation result',
+        data: {
+          variantId,
+          exists: !!variant,
+          variant: variant
+            ? {
+                id: variant.id,
+                productId: variant.product?.id,
+                colorName: variant.color?.name,
+                sizeName: variant.size?.name,
+                stockQuantity: variant.stockQuantity,
+              }
+            : null,
+        },
+      };
+    } catch (error) {
+      return {
+        message: 'Variant validation failed',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        data: { variantId, exists: false },
       };
     }
   }

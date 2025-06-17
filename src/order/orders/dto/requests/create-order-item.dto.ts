@@ -1,8 +1,11 @@
-import { IsInt, IsNumber, IsString, IsUUID, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsInt, IsNumber, IsUUID, Min } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 export class CreateOrderItemDto {
   @IsUUID()
+  @Transform(
+    ({ value }) => (value === '' ? undefined : value) as string | undefined,
+  )
   variantId: string;
 
   @IsInt()
