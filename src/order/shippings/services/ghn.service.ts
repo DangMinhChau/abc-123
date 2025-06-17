@@ -49,15 +49,36 @@ export class GhnService {
   constructor(private configService: ConfigService) {
     this.ghnToken = this.configService.get<string>('GHN_TOKEN') || '';
     this.shopId = this.configService.get<string>('GHN_SHOP_ID') || '';
-    this.fromDistrictId = this.configService.get<number>(
+
+    // Ensure fromDistrictId is a number
+    const fromDistrictIdStr = this.configService.get<string>(
       'GHN_FROM_DISTRICT_ID',
-      1442,
+      '1442',
+    );
+    this.fromDistrictId = parseInt(fromDistrictIdStr, 10);
+
+    console.log('GHN Configuration:');
+    console.log('- Token:', this.ghnToken ? 'Available' : 'Missing');
+    console.log('- Shop ID:', this.shopId ? 'Available' : 'Missing');
+    console.log(
+      '- From District ID:',
+      this.fromDistrictId,
+      '(type:',
+      typeof this.fromDistrictId,
+      ')',
     );
 
     if (!this.ghnToken || !this.shopId) {
       console.warn(
         'GHN configuration is missing. Please check your environment variables.',
       );
+    }
+
+    if (isNaN(this.fromDistrictId)) {
+      console.warn(
+        'GHN_FROM_DISTRICT_ID is not a valid number, using default 1442',
+      );
+      this.fromDistrictId = 1442;
     }
   }
 
@@ -180,29 +201,26 @@ export class GhnService {
           'GHN configuration is missing (token or shop ID)',
           HttpStatus.SERVICE_UNAVAILABLE,
         );
-      }
-
-      // Log request params for debugging
+      } // Log request params for debugging
       console.log('GHN Shipping Fee Request Params:', {
         service_type_id: params.service_type_id || 2,
-        from_district_id: this.fromDistrictId,
-        to_district_id: params.to_district_id,
-        to_ward_code: params.to_ward_code,
-        height: params.height,
-        length: params.length,
-        weight: params.weight,
-        width: params.width,
+        from_district_id: Number(this.fromDistrictId),
+        to_district_id: Number(params.to_district_id),
+        to_ward_code: String(params.to_ward_code),
+        height: Number(params.height),
+        length: Number(params.length),
+        weight: Number(params.weight),
+        width: Number(params.width),
       });
-
       const requestBody = {
         service_type_id: params.service_type_id || 2, // Standard service
-        from_district_id: this.fromDistrictId,
-        to_district_id: params.to_district_id,
-        to_ward_code: params.to_ward_code,
-        height: params.height,
-        length: params.length,
-        weight: params.weight,
-        width: params.width,
+        from_district_id: Number(this.fromDistrictId), // Ensure it's a number
+        to_district_id: Number(params.to_district_id), // Ensure it's a number
+        to_ward_code: String(params.to_ward_code), // Ensure it's a string
+        height: Number(params.height),
+        length: Number(params.length),
+        weight: Number(params.weight),
+        width: Number(params.width),
       };
 
       const response = await fetch(`${this.ghnApiUrl}/v2/shipping-order/fee`, {

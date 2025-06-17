@@ -60,6 +60,7 @@ Tất cả các module trong folder `src/order/` đã được refactor thành c
 - **DTOs:** ✅ Complete shipping DTOs
 - **Entity:** ✅ Comprehensive shipping data với GHN fields
 - **Module:** ✅ Properly configured
+- **GHN Service:** ✅ Full integration với provinces, districts, wards, shipping fee calculation
 
 **Key Features:**
 
@@ -68,6 +69,14 @@ Tất cả các module trong folder `src/order/` đã được refactor thành c
 - Delivery tracking
 - Address management
 - Shipping cost calculation
+
+**Recent GHN Fixes:**
+
+- ✅ **Type Safety Fix**: Fixed `from_district_id` type error (string → number conversion)
+- ✅ **Parameter Validation**: All numeric fields properly typed in API requests
+- ✅ **Enhanced Logging**: Debug information for troubleshooting GHN API calls
+- ✅ **Test Endpoint**: `GET /ghn/test` for configuration validation
+- ✅ **Error Handling**: Improved error responses and validation
 
 ## 🔧 Technical Improvements
 
