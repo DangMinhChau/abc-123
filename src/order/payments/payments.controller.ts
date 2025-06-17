@@ -59,35 +59,55 @@ export class PaymentsController {
       currency?: string;
     },
   ): Promise<BaseResponseDto> {
-    this.logger.log('Creating PayPal order');
-    const result = await this.paymentsService.create({
-      orderId: createOrderDto.orderId,
-      method: PaymentMethod.PAYPAL,
-      amount: createOrderDto.amount,
-      note: 'PayPal payment',
-    });
+    try {
+      this.logger.log('=== Creating PayPal order ===');
+      this.logger.log(
+        'Request payload:',
+        JSON.stringify(createOrderDto, null, 2),
+      );
 
-    // Check if result has paypalOrderId (PayPal payment) or is regular payment
-    if ('paypalOrderId' in result) {
-      return {
-        message: 'PayPal order created successfully',
-        data: {
-          paypalOrderId: result.paypalOrderId,
-          status: result.status,
-          orderId: result.orderId,
-        },
-        meta: {
-          timestamp: new Date().toISOString(),
-        },
-      };
-    } else {
-      return {
-        message: 'Payment created successfully',
-        data: result,
-        meta: {
-          timestamp: new Date().toISOString(),
-        },
-      };
+      const result = await this.paymentsService.create({
+        orderId: createOrderDto.orderId,
+        method: PaymentMethod.PAYPAL,
+        amount: createOrderDto.amount,
+        note: 'PayPal payment',
+      });
+
+      this.logger.log(
+        'PaymentsService result:',
+        JSON.stringify(result, null, 2),
+      );
+
+      // Check if result has paypalOrderId (PayPal payment) or is regular payment
+      if ('paypalOrderId' in result) {
+        this.logger.log('✅ PayPal order created successfully');
+        return {
+          message: 'PayPal order created successfully',
+          data: {
+            paypalOrderId: result.paypalOrderId,
+            status: result.status,
+            orderId: result.orderId,
+          },
+          meta: {
+            timestamp: new Date().toISOString(),
+          },
+        };
+      } else {
+        this.logger.log('✅ Regular payment created successfully');
+        return {
+          message: 'Payment created successfully',
+          data: result,
+          meta: {
+            timestamp: new Date().toISOString(),
+          },
+        };
+      }
+    } catch (error) {
+      this.logger.error('❌ Error in createPayPalOrder:');
+      this.logger.error('Error name:', error.name);
+      this.logger.error('Error message:', error.message);
+      this.logger.error('Error stack:', error.stack);
+      throw error;
     }
   }
 
@@ -144,5 +164,27 @@ export class PaymentsController {
         timestamp: new Date().toISOString(),
       },
     };
+  }
+
+  @Get('paypal/test')
+  @ApiOperation({ summary: 'Test PayPal service and credentials' })
+  async testPayPal(): Promise<BaseResponseDto> {
+    try {
+      this.logger.log('=== Testing PayPal Service ===');
+
+      // Test basic PayPal service initialization
+      const testResult = await this.paymentsService.testPayPalService();
+
+      return {
+        message: 'PayPal service test completed',
+        data: testResult,
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      this.logger.error('❌ PayPal test failed:', error);
+      throw error;
+    }
   }
 }

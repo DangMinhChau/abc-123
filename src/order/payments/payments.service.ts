@@ -537,4 +537,38 @@ export class PaymentsService {
       // Don't throw error to prevent notification failure from affecting payment flow
     }
   }
+
+  async testPayPalService(): Promise<any> {
+    try {
+      this.logger.log('Testing PayPal service...');
+
+      // Test với fake order để xem service có hoạt động không
+      const testOrder = {
+        orderId: 'test-order-' + Date.now(),
+        amount: 10, // $10 USD
+        currency: 'USD',
+        description: 'Test order',
+      };
+
+      this.logger.log('Test order data:', JSON.stringify(testOrder, null, 2));
+
+      const result = await this.paypalService.createOrder(testOrder);
+
+      this.logger.log('✅ PayPal service test successful');
+      return {
+        success: true,
+        testOrder,
+        paypalResponse: result,
+      };
+    } catch (error) {
+      this.logger.error('❌ PayPal service test failed:', error);
+      return {
+        success: false,
+        error: {
+          name: error.name,
+          message: error.message,
+        },
+      };
+    }
+  }
 }
