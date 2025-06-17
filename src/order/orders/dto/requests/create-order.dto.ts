@@ -8,9 +8,11 @@ import {
   IsUUID,
   Min,
   ValidateNested,
+  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CreateOrderItemDto } from './create-order-item.dto';
+import { PaymentMethod } from '../../../../common/constants/payment-method.enum';
 
 export class CreateOrderDto {
   @IsOptional()
@@ -71,8 +73,7 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   voucherCode?: string;
-
   @IsOptional()
-  @IsString()
-  paymentMethod?: string;
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
 }

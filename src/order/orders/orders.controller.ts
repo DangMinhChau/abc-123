@@ -60,7 +60,6 @@ export class OrdersController {
       throw new Error(`Không thể tạo đơn hàng: ${errorMessage}`);
     }
   }
-
   @Post('paypal')
   @UseGuards(OptionalJwtAuthGuard) // Allow both authenticated and guest users
   @ApiOperation({ summary: 'Create a new order with PayPal payment' })
@@ -74,6 +73,11 @@ export class OrdersController {
     @GetUser() user: User | null,
   ): Promise<BaseResponseDto<{ orderId: string; approvalUrl: string }>> {
     try {
+      console.log(
+        'PayPal Order Request:',
+        JSON.stringify(createOrderDto, null, 2),
+      );
+
       // Set userId from JWT if authenticated
       if (user && !createOrderDto.userId) {
         createOrderDto.userId = user.id;
@@ -93,6 +97,7 @@ export class OrdersController {
         },
       };
     } catch (error) {
+      console.error('PayPal Order Creation Error:', error);
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Không thể tạo đơn hàng PayPal: ${errorMessage}`);
