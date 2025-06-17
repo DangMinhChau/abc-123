@@ -46,14 +46,19 @@ export class GhnService {
   private readonly ghnToken: string;
   private readonly shopId: string;
   private readonly fromDistrictId: number;
-
   constructor(private configService: ConfigService) {
-    this.ghnToken = this.configService.get<string>('GHN_TOKEN');
-    this.shopId = this.configService.get<string>('GHN_SHOP_ID');
+    this.ghnToken = this.configService.get<string>('GHN_TOKEN') || '';
+    this.shopId = this.configService.get<string>('GHN_SHOP_ID') || '';
     this.fromDistrictId = this.configService.get<number>(
       'GHN_FROM_DISTRICT_ID',
       1442,
     );
+
+    if (!this.ghnToken || !this.shopId) {
+      console.warn(
+        'GHN configuration is missing. Please check your environment variables.',
+      );
+    }
   }
 
   private getHeaders() {
