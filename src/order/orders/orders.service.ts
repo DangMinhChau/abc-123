@@ -189,13 +189,18 @@ export class OrdersService {
             sizeName: variant.size?.name || 'Unknown Size',
           }),
       );
-
       await this.orderItemRepository.save(orderItems);
-      this.logger.log('Order items saved'); // Create payment record
+      this.logger.log('Order items saved');
+
+      // Create payment record
       const paymentMethodEnum =
         paymentMethod === PaymentMethod.PAYPAL
           ? PaymentMethod.PAYPAL
           : PaymentMethod.COD;
+
+      this.logger.log(
+        `Creating payment record for order ${savedOrder.id} with method: ${paymentMethodEnum}`,
+      );
 
       const payment = this.paymentRepository.create({
         order: savedOrder,
@@ -204,10 +209,12 @@ export class OrdersService {
         status: PaymentStatus.UNPAID,
       });
 
-      await this.paymentRepository.save(payment);
+      const savedPayment = await this.paymentRepository.save(payment);
       this.logger.log(
-        `Payment record created with method: ${paymentMethodEnum}`,
-      ); // Create shipping record
+        `✅ Payment record created successfully - ID: ${savedPayment.id}, Method: ${paymentMethodEnum}, Order: ${savedOrder.id}`,
+      );
+
+      // Create shipping record
       const shipping = this.shippingRepository.create({
         order: savedOrder,
         recipientName: finalCustomerName,

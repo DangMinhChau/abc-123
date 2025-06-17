@@ -69,24 +69,60 @@ export class PaymentsService {
 
     return this.paymentRepository.save(payment);
   }
-
   async updatePaymentAfterCapture(
     orderId: string,
     paypalOrderId: string,
     captureResult: any,
   ): Promise<Payment> {
+    console.log(`=== Debug: Looking for order ${orderId} ===`);
+
+    // First check if order exists at all
     const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+    });
+
+    console.log('Order found (without relations):', !!order);
+
+    if (!order) {
+      console.log('❌ Order not found in database');
+      throw new NotFoundException(`Không tìm thấy đơn hàng: ${orderId}`);
+    }
+
+    // Now check with payment relation
+    const orderWithPayment = await this.orderRepository.findOne({
       where: { id: orderId },
       relations: ['payment'],
     });
 
-    if (!order || !order.payment) {
+    console.log('Order with payment relation:', {
+      hasOrder: !!orderWithPayment,
+      hasPayment: !!orderWithPayment?.payment,
+      paymentId: orderWithPayment?.payment?.id,
+      paymentMethod: orderWithPayment?.payment?.method,
+    });
+
+    if (!orderWithPayment || !orderWithPayment.payment) {
+      // Try to find payment separately
+      const payments = await this.paymentRepository.find({
+        where: { order: { id: orderId } },
+      });
+
+      console.log('Payments found separately:', payments.length);
+      console.log(
+        'Payment details:',
+        payments.map((p) => ({
+          id: p.id,
+          method: p.method,
+          status: p.status,
+        })),
+      );
+
       throw new NotFoundException(
         `Không tìm thấy thanh toán cho đơn hàng: ${orderId}`,
       );
     }
 
-    const payment = order.payment;
+    const payment = orderWithPayment.payment;
 
     if (captureResult.status === 'COMPLETED') {
       payment.status = PaymentStatus.PAID;
