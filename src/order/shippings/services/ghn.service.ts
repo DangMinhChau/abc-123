@@ -71,12 +71,22 @@ export class GhnService {
 
   async getProvinces(): Promise<GHNProvince[]> {
     try {
+      console.log(
+        'GHN Token:',
+        this.ghnToken ? 'Token available' : 'Token missing',
+      );
+      console.log(
+        'GHN Shop ID:',
+        this.shopId ? 'Shop ID available' : 'Shop ID missing',
+      );
+
       const response = await fetch(`${this.ghnApiUrl}/master-data/province`, {
         method: 'GET',
         headers: this.getHeaders(),
       });
 
       const result = await response.json();
+      console.log('GHN Provinces Response:', result);
 
       if (result.code === 200) {
         return result.data;
@@ -87,6 +97,7 @@ export class GhnService {
         );
       }
     } catch (error) {
+      console.error('GHN Province Error:', error);
       throw new HttpException(
         'Failed to fetch provinces from GHN',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -96,6 +107,8 @@ export class GhnService {
 
   async getDistricts(provinceId: number): Promise<GHNDistrict[]> {
     try {
+      console.log('Getting districts for province ID:', provinceId);
+
       const response = await fetch(`${this.ghnApiUrl}/master-data/district`, {
         method: 'POST',
         headers: this.getHeaders(),
@@ -105,6 +118,7 @@ export class GhnService {
       });
 
       const result = await response.json();
+      console.log('GHN Districts Response:', result);
 
       if (result.code === 200) {
         return result.data;
@@ -115,6 +129,7 @@ export class GhnService {
         );
       }
     } catch (error) {
+      console.error('GHN Districts Error:', error);
       throw new HttpException(
         'Failed to fetch districts from GHN',
         HttpStatus.INTERNAL_SERVER_ERROR,

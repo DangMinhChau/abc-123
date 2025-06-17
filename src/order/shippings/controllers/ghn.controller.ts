@@ -9,14 +9,13 @@ export class GhnController {
   async getProvinces() {
     return this.ghnService.getProvinces();
   }
-
-  @Get('districts')
-  async getDistricts(@Query('province_id') provinceId: number) {
+  @Post('districts')
+  async getDistricts(@Body('province_id') provinceId: number) {
     return this.ghnService.getDistricts(provinceId);
   }
 
-  @Get('wards')
-  async getWards(@Query('district_id') districtId: number) {
+  @Post('wards')
+  async getWards(@Body('district_id') districtId: number) {
     return this.ghnService.getWards(districtId);
   }
   @Post('shipping-fee')
