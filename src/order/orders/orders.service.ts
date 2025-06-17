@@ -63,6 +63,7 @@ export class OrdersService {
         userId,
         voucherId,
         voucherCode,
+        paymentMethod,
       } = createOrderDto;
 
       this.logger.log('Validating user...');
@@ -190,18 +191,23 @@ export class OrdersService {
       );
 
       await this.orderItemRepository.save(orderItems);
-      this.logger.log('Order items saved');
+      this.logger.log('Order items saved'); // Create payment record
+      const paymentMethodEnum =
+        paymentMethod === PaymentMethod.PAYPAL
+          ? PaymentMethod.PAYPAL
+          : PaymentMethod.COD;
 
-      // Create payment record (default COD)
       const payment = this.paymentRepository.create({
         order: savedOrder,
-        method: PaymentMethod.COD,
+        method: paymentMethodEnum,
         amount: totalPrice,
         status: PaymentStatus.UNPAID,
       });
 
       await this.paymentRepository.save(payment);
-      this.logger.log('Payment record created'); // Create shipping record
+      this.logger.log(
+        `Payment record created with method: ${paymentMethodEnum}`,
+      ); // Create shipping record
       const shipping = this.shippingRepository.create({
         order: savedOrder,
         recipientName: finalCustomerName,
