@@ -100,7 +100,6 @@ export class PaymentsService {
       paymentId: orderWithPayment?.payment?.id,
       paymentMethod: orderWithPayment?.payment?.method,
     });
-
     if (!orderWithPayment || !orderWithPayment.payment) {
       // Try to find payment separately
       const payments = await this.paymentRepository.find({
@@ -117,9 +116,44 @@ export class PaymentsService {
         })),
       );
 
-      throw new NotFoundException(
-        `Không tìm thấy thanh toán cho đơn hàng: ${orderId}`,
-      );
+      if (payments.length === 0) {
+        throw new NotFoundException(
+          `Không tìm thấy thanh toán cho đơn hàng: ${orderId}`,
+        );
+      }
+
+      // Use the first payment found
+      const payment = payments[0];
+      console.log('✅ Using payment found separately:', payment.id);
+
+      if (captureResult.status === 'COMPLETED') {
+        payment.status = PaymentStatus.PAID;
+        payment.paidAt = new Date();
+
+        // Update order status and payment info
+        orderWithPayment.isPaid = true;
+        orderWithPayment.paidAt = new Date();
+        orderWithPayment.status = OrderStatus.PROCESSING; // Move to processing after payment
+
+        // Get capture ID if available
+        const captureId =
+          captureResult.purchase_units?.[0]?.payments?.captures?.[0]?.id;
+        if (captureId) {
+          payment.transactionId = paypalOrderId;
+          payment.metadata = { captureId };
+        }
+
+        // Save both payment and order
+        await this.paymentRepository.save(payment);
+        await this.orderRepository.save(orderWithPayment);
+
+        console.log('✅ Payment and order updated successfully');
+        return payment;
+      } else {
+        throw new BadRequestException(
+          `PayPal capture không thành công: ${captureResult.status}`,
+        );
+      }
     }
 
     const payment = orderWithPayment.payment;
