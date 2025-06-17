@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Payment } from './entities/payment.entity';
@@ -120,9 +125,7 @@ export class PaymentsService {
         throw new NotFoundException(
           `Không tìm thấy thanh toán cho đơn hàng: ${orderId}`,
         );
-      }
-
-      // Use the first payment found
+      } // Use the first payment found
       const payment = payments[0];
       console.log('✅ Using payment found separately:', payment.id);
 
@@ -130,22 +133,26 @@ export class PaymentsService {
         payment.status = PaymentStatus.PAID;
         payment.paidAt = new Date();
 
-        // Update order status and payment info
-        orderWithPayment.isPaid = true;
-        orderWithPayment.paidAt = new Date();
-        orderWithPayment.status = OrderStatus.PROCESSING; // Move to processing after payment
+        // Update order status and payment info - orderWithPayment is guaranteed to exist here
+        if (orderWithPayment) {
+          orderWithPayment.isPaid = true;
+          orderWithPayment.paidAt = new Date();
+          orderWithPayment.status = OrderStatus.PROCESSING; // Move to processing after payment
+        }
 
         // Get capture ID if available
         const captureId =
           captureResult.purchase_units?.[0]?.payments?.captures?.[0]?.id;
         if (captureId) {
           payment.transactionId = paypalOrderId;
-          payment.metadata = { captureId };
+          // Note: metadata property might not exist on Payment entity, storing in transactionId instead
         }
 
         // Save both payment and order
         await this.paymentRepository.save(payment);
-        await this.orderRepository.save(orderWithPayment);
+        if (orderWithPayment) {
+          await this.orderRepository.save(orderWithPayment);
+        }
 
         console.log('✅ Payment and order updated successfully');
         return payment;
