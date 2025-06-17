@@ -73,18 +73,39 @@ export class PaymentsController {
     @Body() capturePayPalOrderDto: CapturePayPalOrderDto,
   ): Promise<BaseResponseDto<any>> {
     try {
-      const { paypalOrderId, orderId } = capturePayPalOrderDto;
+      console.log('=== PayPal Capture Started ===');
+      console.log(
+        'Request body:',
+        JSON.stringify(capturePayPalOrderDto, null, 2),
+      );
+
+      const { paypalOrderId, orderId, payerId } = capturePayPalOrderDto;
+
+      console.log('Extracted values:', {
+        paypalOrderId,
+        orderId,
+        payerId,
+      });
 
       // Capture payment with PayPal
+      console.log('Calling PayPal capture service...');
       const captureResult =
         await this.paypalService.captureOrder(paypalOrderId);
 
+      console.log('PayPal capture result:', {
+        status: captureResult.status,
+        id: captureResult.id,
+      });
+
       // Update payment status in database
+      console.log('Updating payment status in database...');
       await this.paymentsService.updatePaymentAfterCapture(
         orderId,
         paypalOrderId,
         captureResult,
       );
+
+      console.log('=== PayPal Capture Completed Successfully ===');
 
       return {
         message: 'Thanh toán PayPal thành công',
@@ -100,7 +121,13 @@ export class PaymentsController {
         },
       };
     } catch (error) {
-      console.error('PayPal capture failed:', error);
+      console.error('=== PayPal Capture Failed ===');
+      console.error('Error details:', {
+        name: error?.constructor?.name,
+        message: error?.message,
+        stack: error?.stack?.split('\n').slice(0, 5),
+        requestBody: capturePayPalOrderDto,
+      });
 
       // Update payment status to failed
       try {

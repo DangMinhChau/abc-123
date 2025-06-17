@@ -163,11 +163,32 @@ export class PayPalService {
       throw new BadRequestException('Failed to create PayPal order');
     }
   }
-
   async captureOrder(paypalOrderId: string): Promise<PayPalCaptureResponse> {
     try {
       const accessToken = await this.getAccessToken();
 
+      // First, check order status
+      this.logger.log(`Checking PayPal order status: ${paypalOrderId}`);
+      const orderDetails = await this.getOrderDetails(paypalOrderId);
+
+      this.logger.log(`PayPal order status: ${orderDetails.status}`);
+
+      if (orderDetails.status === 'COMPLETED') {
+        this.logger.warn(`PayPal order ${paypalOrderId} already captured`);
+        throw new BadRequestException('PayPal order already captured');
+      }
+
+      if (orderDetails.status !== 'APPROVED') {
+        this.logger.error(
+          `PayPal order ${paypalOrderId} status is ${orderDetails.status}, cannot capture`,
+        );
+        throw new BadRequestException(
+          `PayPal order status is ${orderDetails.status}, cannot capture`,
+        );
+      }
+
+      // Proceed with capture
+      this.logger.log(`Capturing PayPal order: ${paypalOrderId}`);
       const response = await fetch(
         `${this.baseUrl}/v2/checkout/orders/${paypalOrderId}/capture`,
         {
