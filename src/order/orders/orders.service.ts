@@ -5,908 +5,295 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { CreateOrderDto } from './dto/requests/create-order.dto';
-import { UpdateOrderDto } from './dto/requests/update-order.dto';
-import { OrderItemDto } from './dto/shared/order-item.dto';
+import { Repository, MoreThanOrEqual, LessThan } from 'typeorm';
 import { Order } from './entities/order.entity';
-import { OrderStatus } from 'src/common/constants/order-status.enum';
-import { PaymentStatus } from 'src/common/constants/payment-status.enum';
-import { ProductsService } from 'src/product/products/products.service';
+import { OrderItem } from '../order-items/entities/order-item.entity';
+import { Payment } from '../payments/entities/payment.entity';
+import { Shipping } from '../shippings/entities/shipping.entity';
 import { User } from 'src/user/users/entities/user.entity';
-import { VouchersService } from 'src/promotion/vouchers/vouchers.service';
 import { Voucher } from 'src/promotion/vouchers/entities/voucher.entity';
 import { ProductVariant } from 'src/product/variants/entities/variant.entity';
-import { OrderManagementService } from './services/order-management.service';
-import { OrderValidationService } from './services/order-validation.service';
+import { CreateOrderDto } from './dto/requests/create-order.dto';
+import { OrderStatus } from 'src/common/constants/order-status.enum';
+import { PaymentMethod } from 'src/common/constants/payment-method.enum';
+import { PaymentStatus } from 'src/common/constants/payment-status.enum';
+import { ShippingStatus } from 'src/common/constants/shipping-status.enum';
+import { ShippingMethod } from 'src/common/constants/shipping-method.enum';
 
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     @InjectRepository(Order)
     private orderRepository: Repository<Order>,
+    @InjectRepository(OrderItem)
+    private orderItemRepository: Repository<OrderItem>,
+    @InjectRepository(Payment)
+    private paymentRepository: Repository<Payment>,
+    @InjectRepository(Shipping)
+    private shippingRepository: Repository<Shipping>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
+    @InjectRepository(Voucher)
+    private voucherRepository: Repository<Voucher>,
     @InjectRepository(ProductVariant)
     private variantRepository: Repository<ProductVariant>,
-    private readonly productsService: ProductsService,
-    private readonly vouchersService: VouchersService,
-    private readonly orderManagementService: OrderManagementService,
-    private readonly orderValidationService: OrderValidationService,
   ) {}
-  async findAll(
-    page: number = 1,
-    limit: number = 10,
-    status?: string,
-    userId?: string,
-  ): Promise<{
-    data: Order[];
-    meta: { total: number; page: number; limit: number };
-  }> {
-    const query = this.orderRepository
-      .createQueryBuilder('order')
-      .leftJoinAndSelect('order.items', 'items')
-      .leftJoinAndSelect('items.product', 'product')
-      .leftJoinAndSelect('order.payment', 'payment')
-      .leftJoinAndSelect('order.user', 'user')
-      .orderBy('order.createdAt', 'DESC');
+  async createOrder(createOrderDto: CreateOrderDto): Promise<Order> {
+    const {
+      customerName,
+      customerEmail,
+      customerPhone,
+      shippingAddress,
+      items,
+      subTotal,
+      shippingFee,
+      discount,
+      totalPrice,
+      note,
+      userId,
+      voucherId,
+    } = createOrderDto;
 
+    // Validate user if provided
+    let user: User | null = null;
     if (userId) {
-      query.where('user.id = :userId', { userId });
+      user = await this.userRepository.findOne({ where: { id: userId } });
+      if (!user) {
+        throw new NotFoundException(
+          `Không tìm thấy người dùng với ID: ${userId}`,
+        );
+      }
     }
 
-    if (status) {
-      query.andWhere('order.status = :status', { status });
+    // Validate voucher if provided
+    let voucher: Voucher | null = null;
+    if (voucherId) {
+      voucher = await this.voucherRepository.findOne({
+        where: { id: voucherId },
+      });
+      if (!voucher) {
+        throw new NotFoundException(
+          `Không tìm thấy voucher với ID: ${voucherId}`,
+        );
+      }
     }
 
-    const [orders, total] = await query
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
+    // Validate variants and check stock
+    const validatedItems: Array<{
+      variant: ProductVariant;
+      quantity: number;
+      unitPrice: number;
+    }> = [];
+    for (const item of items) {
+      const variant = await this.variantRepository.findOne({
+        where: { id: item.variantId },
+        relations: ['product'],
+      });
 
-    return {
-      data: orders,
-      meta: {
-        total,
-        page,
-        limit,
-      },
-    };
+      if (!variant) {
+        throw new NotFoundException(
+          `Không tìm thấy variant với ID: ${item.variantId}`,
+        );
+      }
+
+      if (variant.stockQuantity < item.quantity) {
+        throw new BadRequestException(
+          `Không đủ hàng trong kho cho sản phẩm ${variant.product?.name}. ` +
+            `Còn lại: ${variant.stockQuantity}, yêu cầu: ${item.quantity}`,
+        );
+      }
+
+      validatedItems.push({
+        variant,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      });
+    }
+
+    // Generate order number
+    const orderNumber = await this.generateOrderNumber(); // Create order
+    const order = this.orderRepository.create({
+      orderNumber,
+      user,
+      customerName,
+      customerEmail,
+      customerPhone,
+      shippingAddress,
+      subTotal,
+      shippingFee,
+      discount,
+      totalPrice,
+      note,
+      voucher: voucher || undefined,
+      status: OrderStatus.PENDING,
+    });
+
+    // Save order first to get ID
+    const savedOrder = await this.orderRepository.save(order); // Create order items
+    const orderItems = validatedItems.map(({ variant, quantity, unitPrice }) =>
+      this.orderItemRepository.create({
+        order: savedOrder,
+        variant,
+        quantity,
+        unitPrice,
+        productName: variant.product?.name || 'Unknown Product',
+        variantSku: variant.sku,
+        colorName: variant.color?.name || 'Unknown Color',
+        sizeName: variant.size?.name || 'Unknown Size',
+      }),
+    );
+
+    await this.orderItemRepository.save(orderItems);
+
+    // Create payment record (default COD)
+    const payment = this.paymentRepository.create({
+      order: savedOrder,
+      method: PaymentMethod.COD,
+      amount: totalPrice,
+      status: PaymentStatus.UNPAID,
+    });
+
+    await this.paymentRepository.save(payment);
+
+    // Create shipping record
+    const shipping = this.shippingRepository.create({
+      order: savedOrder,
+      recipientName: customerName,
+      recipientPhone: customerPhone,
+      address: shippingAddress,
+      shippingFee,
+      status: ShippingStatus.PENDING,
+      // Default values for required fields
+      wardCode: '',
+      districtId: 0,
+      provinceId: 0,
+      ward: '',
+      district: '',
+      province: '',
+      shippingMethod: ShippingMethod.STANDARD,
+    });
+
+    await this.shippingRepository.save(shipping);
+
+    // Update variant stock
+    for (const { variant, quantity } of validatedItems) {
+      variant.stockQuantity -= quantity;
+      await this.variantRepository.save(variant);
+    }
+
+    // Return order with relations
+    return this.findOrderById(savedOrder.id);
   }
-  async findOne(id: string) {
+
+  async findOrderById(id: string): Promise<Order> {
     const order = await this.orderRepository.findOne({
       where: { id },
-      relations: ['items', 'items.product', 'payment', 'voucher'],
+      relations: [
+        'user',
+        'items',
+        'items.variant',
+        'items.variant.product',
+        'items.variant.color',
+        'items.variant.size',
+        'payment',
+        'shipping',
+        'voucher',
+      ],
     });
 
     if (!order) {
-      throw new NotFoundException('Order not found');
+      throw new NotFoundException(`Không tìm thấy đơn hàng với ID: ${id}`);
     }
 
     return order;
   }
-  async findByOrderNumber(orderNumber: string) {
+
+  async findOrderByNumber(orderNumber: string): Promise<Order> {
     const order = await this.orderRepository.findOne({
       where: { orderNumber },
-      relations: ['items', 'items.product', 'payment', 'voucher'],
+      relations: [
+        'user',
+        'items',
+        'items.variant',
+        'items.variant.product',
+        'items.variant.color',
+        'items.variant.size',
+        'payment',
+        'shipping',
+        'voucher',
+      ],
     });
 
     if (!order) {
-      throw new NotFoundException('Order not found');
+      throw new NotFoundException(
+        `Không tìm thấy đơn hàng với số: ${orderNumber}`,
+      );
     }
 
     return order;
   }
 
-  async update(id: string, updateOrderDto: UpdateOrderDto) {
-    const order = await this.findOne(id);
-
-    Object.assign(order, updateOrderDto);
-
-    return await this.orderRepository.save(order);
-  }
-  async updateStatus(id: string, status: OrderStatus, notes?: string) {
-    const order = await this.findOne(id);
-
-    order.status = status;
-    if (notes) {
-      order.note = notes;
-    }
-
-    // Use the management service to handle status updates properly
-    return await this.orderManagementService.updateOrderStatus(id, status);
-  } /**
-   * Update payment status of an order (internal method for payment processing)
-   * @param id Order ID
-   * @param isPaid Payment status
-   * @param paidAt Payment date (optional, defaults to current date if isPaid is true)
-   * @returns Updated order
-   */
-  async updatePaymentStatus(
-    id: string,
-    isPaid: boolean,
-    paidAt?: Date,
-  ): Promise<Order> {
-    await this.orderManagementService.updatePaymentStatus(id, isPaid);
-    return await this.findOne(id);
-  }
-
-  /**
-   * Update completion timestamp for an order
-   * @param id Order ID
-   * @returns Updated order
-   */
-  async updateCompletionTimestamp(id: string): Promise<Order> {
-    const order = await this.findOne(id);
-    order.completedAt = new Date();
-    return await this.orderRepository.save(order);
-  }
-
-  /**
-   * Update cancellation timestamp for an order
-   * @param id Order ID
-   * @returns Updated order
-   */
-  async updateCancellationTimestamp(id: string): Promise<Order> {
-    const order = await this.findOne(id);
-    order.canceledAt = new Date();
-    return await this.orderRepository.save(order);
-  }
-
-  async cancelOrder(id: string, reason?: string) {
-    const order = await this.findOne(id);
-
-    if (
-      order.status === OrderStatus.COMPLETED ||
-      order.status === OrderStatus.CANCELLED
-    ) {
-      throw new BadRequestException('Cannot cancel this order');
-    }
-
-    order.status = OrderStatus.CANCELLED;
-    if (reason) {
-      order.note = reason;
-    }
-
-    // Handle refund if payment was made
-    if (order.payment?.status === PaymentStatus.PAID) {
-      // Note: This would require a refund method in PaymentsService
-      // For now, we'll just log it as this method doesn't exist
-      console.log(`Refund needed for payment ${order.payment.id}`);
-    }
-    return await this.orderRepository.save(order);
-  }
-
-  async remove(id: string) {
-    const order = await this.findOne(id);
-    return await this.orderRepository.remove(order);
-  }
-  async getOrderDetails(id: string) {
-    return await this.findOne(id);
-  }
-  /**
-   * Find orders for a specific user with pagination
-   */
-  async findUserOrders(
-    userId: string,
-    page: number = 1,
-    limit: number = 10,
-    status?: OrderStatus,
-  ): Promise<{
-    data: Order[];
-    meta: { total: number; page: number; limit: number };
-  }> {
-    const query = this.orderRepository
-      .createQueryBuilder('order')
-      .leftJoinAndSelect('order.items', 'items')
-      .leftJoinAndSelect('items.product', 'product')
-      .leftJoinAndSelect('order.payment', 'payment')
-      .leftJoinAndSelect('order.user', 'user')
-      .where('user.id = :userId', { userId })
-      .orderBy('order.createdAt', 'DESC');
-
-    if (status) {
-      query.andWhere('order.status = :status', { status });
-    }
-
-    const [orders, total] = await query
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
+  async findOrdersByUser(userId: string, page = 1, limit = 10) {
+    const [orders, total] = await this.orderRepository.findAndCount({
+      where: { user: { id: userId } },
+      relations: [
+        'items',
+        'items.variant',
+        'items.variant.product',
+        'payment',
+        'shipping',
+      ],
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
 
     return {
-      data: orders,
-      meta: {
-        total,
-        page,
-        limit,
-      },
+      orders,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     };
   }
 
-  /**
-   * Find a single order and verify user ownership
-   */ async findOneForUser(id: string, userId: string): Promise<Order> {
-    const order = await this.orderRepository.findOne({
-      where: { id, user: { id: userId } },
-      relations: ['items', 'items.product', 'payment', 'user', 'voucher'],
-    });
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    return order;
-  }
-  /**
-   * Cancel order with user verification
-   */
-  async cancelOrderForUser(
-    id: string,
-    userId: string,
-    reason?: string,
-  ): Promise<Order> {
-    const order = await this.findOneForUser(id, userId);
-
-    if (
-      order.status === OrderStatus.COMPLETED ||
-      order.status === OrderStatus.CANCELLED
-    ) {
-      throw new BadRequestException('Cannot cancel this order');
-    }
-
-    order.status = OrderStatus.CANCELLED;
-    order.canceledAt = new Date();
-    if (reason) {
-      order.note = reason;
-    }
-
-    // Handle refund and stock restoration if payment was made
-    if (order.payment?.status === PaymentStatus.PAID) {
-      // If payment was successful, we need to restore stock when order is cancelled
-      this.logger.log(`Restoring stock for cancelled paid order ${order.id}`);
-      await this.restoreStockForFailedPayment(order.id);
-
-      // Note: This would require a refund method in PaymentsService
-      console.log(`Refund needed for payment ${order.payment.id}`);
-    }
-    // If order was cancelled before payment completion, no stock restoration needed
-    // since stock wasn't decremented yet
-
-    return await this.orderRepository.save(order);
-  }
-  /**
-   * Update stock quantities for order items (called after successful payment)
-   */
-  async updateStockForSuccessfulPayment(orderId: string): Promise<void> {
-    const order = await this.orderRepository.findOne({
-      where: { id: orderId },
-      relations: ['items', 'items.variant'],
-    });
-
-    if (!order) {
-      throw new NotFoundException(`Order with id ${orderId} not found`);
-    }
-
-    if (!order.items || order.items.length === 0) {
-      throw new BadRequestException(`Order ${orderId} has no items`);
-    }
-
-    // Update stock for each order item
-    for (const item of order.items) {
-      // Get product info from variant
-      const productData = await this.productsService.getProductFromVariant(
-        item.variant.id,
-      );
-
-      await this.productsService.updateProductStock(
-        productData.product.id,
-        item.variant.id,
-        item.quantity,
-      );
-    }
-  }
-
-  /**
-   * Restore stock quantities for order items (called when payment fails/cancelled)
-   */
-  async restoreStockForFailedPayment(orderId: string): Promise<void> {
-    const order = await this.orderRepository.findOne({
-      where: { id: orderId },
-      relations: ['items', 'items.variant'],
-    });
-
-    if (!order) {
-      throw new NotFoundException(`Order with id ${orderId} not found`);
-    }
-
-    if (!order.items || order.items.length === 0) {
-      return; // No items to restore
-    }
-
-    // Only restore stock if the order was created but payment failed
-    // This prevents double restoration
-    if (
-      order.status === OrderStatus.PENDING ||
-      order.status === OrderStatus.CANCELLED
-    ) {
-      // Restore stock for each order item
-      for (const item of order.items) {
-        const productData = await this.productsService.getProductFromVariant(
-          item.variant.id,
-        );
-
-        await this.productsService.restoreProductStock(
-          productData.product.id,
-          item.variant.id,
-          item.quantity,
-        );
-      }
-    }
-  }
-
-  /**
-   * Find all orders for admin with advanced filtering
-   */
-  async findAllForAdmin(filters: {
-    page: number;
-    limit: number;
-    status?: OrderStatus;
-    paymentStatus?: PaymentStatus;
-    search?: string;
-    sortBy?: string;
-    sortOrder?: 'ASC' | 'DESC';
-  }) {
-    const queryBuilder = this.orderRepository
-      .createQueryBuilder('order')
-      .leftJoinAndSelect('order.user', 'user')
-      .leftJoinAndSelect('order.payment', 'payment')
-      .leftJoinAndSelect('order.shipping', 'shipping')
-      .leftJoinAndSelect('order.items', 'items')
-      .leftJoinAndSelect('items.product', 'product')
-      .leftJoinAndSelect('items.variant', 'variant')
-      .leftJoinAndSelect('order.voucher', 'voucher');
-
-    // Apply filters
-    if (filters.status) {
-      queryBuilder.andWhere('order.status = :status', {
-        status: filters.status,
-      });
-    }
-
-    if (
-      filters.paymentStatus &&
-      filters.paymentStatus !== PaymentStatus.PENDING
-    ) {
-      queryBuilder.andWhere('payment.status = :paymentStatus', {
-        paymentStatus: filters.paymentStatus,
-      });
-    }
-
-    if (filters.search) {
-      queryBuilder.andWhere(
-        '(order.orderNumber ILIKE :search OR user.email ILIKE :search OR user.firstName ILIKE :search OR user.lastName ILIKE :search)',
-        { search: `%${filters.search}%` },
-      );
-    }
-
-    // Apply sorting
-    const sortBy = filters.sortBy || 'createdAt';
-    const sortOrder = filters.sortOrder || 'DESC';
-    queryBuilder.orderBy(`order.${sortBy}`, sortOrder);
-
-    // Apply pagination
-    const skip = (filters.page - 1) * filters.limit;
-    queryBuilder.skip(skip).take(filters.limit);
-
-    const [data, total] = await queryBuilder.getManyAndCount();
-
-    return {
-      data,
-      meta: {
-        page: filters.page,
-        limit: filters.limit,
-        total,
-      },
-    };
-  }
-
-  /**
-   * Find one order for admin (full details)
-   */
-  async findOneForAdmin(id: string) {
-    const order = await this.orderRepository
-      .createQueryBuilder('order')
-      .leftJoinAndSelect('order.user', 'user')
-      .leftJoinAndSelect('order.payment', 'payment')
-      .leftJoinAndSelect('order.shipping', 'shipping')
-      .leftJoinAndSelect('order.items', 'items')
-      .leftJoinAndSelect('items.product', 'product')
-      .leftJoinAndSelect('items.variant', 'variant')
-      .leftJoinAndSelect('variant.color', 'color')
-      .leftJoinAndSelect('variant.size', 'size')
-      .leftJoinAndSelect('order.voucher', 'voucher')
-      .where('order.id = :id', { id })
-      .getOne();
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    return order;
-  }
-  /**
-   * Update order status for admin
-   */
-  async updateOrderStatus(id: string, status: OrderStatus) {
-    const order = await this.findOneForAdmin(id);
+  async updateOrderStatus(id: string, status: OrderStatus): Promise<Order> {
+    const order = await this.findOrderById(id);
 
     order.status = status;
-    if (status === OrderStatus.CANCELLED) {
-      order.canceledAt = new Date();
-    } else if (status === OrderStatus.COMPLETED) {
+
+    if (status === OrderStatus.COMPLETED) {
       order.completedAt = new Date();
+    } else if (status === OrderStatus.CANCELLED) {
+      order.canceledAt = new Date();
+      // Restore stock if cancelled
+      for (const item of order.items) {
+        item.variant.stockQuantity += item.quantity;
+        await this.variantRepository.save(item.variant);
+      }
     }
 
-    return await this.orderRepository.save(order);
+    return this.orderRepository.save(order);
   }
 
-  /**
-   * Get order statistics for admin dashboard
-   */
-  async getOrderStats() {
-    const today = new Date();
-    const startOfDay = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate(),
-    );
-    const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - today.getDay());
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  private async generateOrderNumber(): Promise<string> {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
 
-    // Total orders
-    const totalOrders = await this.orderRepository.count();
-
-    // Orders by status
-    const ordersByStatus = await this.orderRepository
-      .createQueryBuilder('order')
-      .select('order.status', 'status')
-      .addSelect('COUNT(*)', 'count')
-      .groupBy('order.status')
-      .getRawMany();
-
-    // Today's orders
-    const todayOrders = await this.orderRepository
-      .createQueryBuilder('order')
-      .where('order.createdAt >= :startOfDay', { startOfDay })
-      .getCount();
-
-    // This week's orders
-    const weekOrders = await this.orderRepository
-      .createQueryBuilder('order')
-      .where('order.createdAt >= :startOfWeek', { startOfWeek })
-      .getCount();
-
-    // This month's orders
-    const monthOrders = await this.orderRepository
-      .createQueryBuilder('order')
-      .where('order.createdAt >= :startOfMonth', { startOfMonth })
-      .getCount();
-
-    // Revenue statistics
-    const revenueStats = await this.orderRepository
-      .createQueryBuilder('order')
-      .select('SUM(order.totalAmount)', 'totalRevenue')
-      .addSelect('AVG(order.totalAmount)', 'averageOrderValue')
-      .where('order.status != :cancelledStatus', {
-        cancelledStatus: OrderStatus.CANCELLED,
-      })
-      .getRawOne();
-
-    // Monthly revenue
-    const monthlyRevenue = await this.orderRepository
-      .createQueryBuilder('order')
-      .select('SUM(order.totalAmount)', 'revenue')
-      .where('order.createdAt >= :startOfMonth', { startOfMonth })
-      .andWhere('order.status != :cancelledStatus', {
-        cancelledStatus: OrderStatus.CANCELLED,
-      })
-      .getRawOne();
-
-    return {
-      totalOrders,
-      ordersByStatus: ordersByStatus.reduce((acc, item) => {
-        acc[item.status] = parseInt(item.count);
-        return acc;
-      }, {}),
-      periodStats: {
-        today: todayOrders,
-        week: weekOrders,
-        month: monthOrders,
+    // Count orders today
+    const startOfDay = new Date(year, date.getMonth(), date.getDate());
+    const endOfDay = new Date(year, date.getMonth(), date.getDate() + 1);
+    const count = await this.orderRepository.count({
+      where: {
+        createdAt: MoreThanOrEqual(startOfDay) && LessThan(endOfDay),
       },
-      revenue: {
-        total: parseFloat(revenueStats.totalRevenue) || 0,
-        average: parseFloat(revenueStats.averageOrderValue) || 0,
-        monthly: parseFloat(monthlyRevenue.revenue) || 0,
-      },
-    };
-  }
-
-  /**
-   * Export orders to CSV format
-   */
-  async exportOrders(filters: {
-    status?: OrderStatus;
-    paymentStatus?: PaymentStatus;
-    dateFrom?: string;
-    dateTo?: string;
-  }) {
-    const queryBuilder = this.orderRepository
-      .createQueryBuilder('order')
-      .leftJoinAndSelect('order.user', 'user')
-      .leftJoinAndSelect('order.payment', 'payment')
-      .leftJoinAndSelect('order.shipping', 'shipping');
-
-    // Apply filters
-    if (filters.status) {
-      queryBuilder.andWhere('order.status = :status', {
-        status: filters.status,
-      });
-    }
-
-    if (filters.paymentStatus) {
-      queryBuilder.andWhere('payment.status = :paymentStatus', {
-        paymentStatus: filters.paymentStatus,
-      });
-    }
-
-    if (filters.dateFrom) {
-      queryBuilder.andWhere('order.createdAt >= :dateFrom', {
-        dateFrom: new Date(filters.dateFrom),
-      });
-    }
-
-    if (filters.dateTo) {
-      queryBuilder.andWhere('order.createdAt <= :dateTo', {
-        dateTo: new Date(filters.dateTo),
-      });
-    }
-
-    const orders = await queryBuilder.getMany();
-
-    // Convert to CSV format
-    const headers = [
-      'Order Number',
-      'Customer Email',
-      'Customer Name',
-      'Status',
-      'Payment Status',
-      'Total Amount',
-      'Created At',
-      'Shipping Address',
-    ];
-    const rows = orders.map((order) => [
-      order.orderNumber,
-      order.user?.email || 'Guest',
-      order.user ? order.user.fullName : order.customerName,
-      order.status,
-      order.payment?.status || 'N/A',
-      order.totalPrice.toString(),
-      order.createdAt.toISOString(),
-      order.shipping
-        ? `${order.shipping.address}, ${order.shipping.ward}, ${order.shipping.district}, ${order.shipping.province}`
-        : 'N/A',
-    ]);
-
-    const csvContent = [headers, ...rows]
-      .map((row) => row.map((field) => `"${field}"`).join(','))
-      .join('\n');
-
-    return csvContent;
-  }
-
-  /**
-   * Handle abandoned orders (orders without successful payment after threshold time)
-   */
-  async handleAbandonedOrders(thresholdMinutes: number = 60): Promise<number> {
-    this.logger.log(
-      `Checking for abandoned orders older than ${thresholdMinutes} minutes`,
-    );
-
-    const thresholdDate = new Date();
-    thresholdDate.setMinutes(thresholdDate.getMinutes() - thresholdMinutes);
-
-    // Find pending orders without successful payment older than threshold
-    const abandonedOrders = await this.orderRepository
-      .createQueryBuilder('order')
-      .leftJoinAndSelect('order.payment', 'payment')
-      .where('order.status = :status', { status: OrderStatus.PENDING })
-      .andWhere('order.createdAt < :thresholdDate', { thresholdDate })
-      .andWhere('(payment.id IS NULL OR payment.status != :paidStatus)', {
-        paidStatus: PaymentStatus.PAID,
-      })
-      .getMany();
-
-    this.logger.log(`Found ${abandonedOrders.length} abandoned orders`);
-
-    let handled = 0;
-    for (const order of abandonedOrders) {
-      try {
-        // Cancel the order
-        order.status = OrderStatus.CANCELLED;
-        order.canceledAt = new Date();
-        order.note = `Cancelled automatically: Order abandoned for more than ${thresholdMinutes} minutes`;
-
-        await this.orderRepository.save(order);
-
-        // Note: No need to restore stock since we didn't decrement it during order creation
-        this.logger.log(`Cancelled abandoned order ${order.id}`);
-        handled++;
-      } catch (error) {
-        this.logger.error(
-          `Failed to cancel abandoned order ${order.id}:`,
-          error,
-        );
-      }
-    }
-
-    this.logger.log(`Successfully handled ${handled} abandoned orders`);
-    return handled;
-  }
-
-  /**
-   * Cancel order for admin with reason
-   */ async cancelOrderForAdmin(id: string, reason?: string): Promise<Order> {
-    const order = await this.findOneForAdmin(id);
-
-    if (order.status === OrderStatus.CANCELLED) {
-      throw new BadRequestException('Order is already cancelled');
-    }
-
-    if (order.status === OrderStatus.COMPLETED) {
-      throw new BadRequestException('Cannot cancel completed order');
-    }
-
-    const originalStatus = order.status;
-    order.status = OrderStatus.CANCELLED;
-    order.canceledAt = new Date();
-    if (reason) {
-      order.note = order.note
-        ? `${order.note}\n\nCancellation reason: ${reason}`
-        : `Cancellation reason: ${reason}`;
-    }
-
-    await this.orderRepository.save(order);
-
-    // Restore stock if order was being processed
-    if (originalStatus === OrderStatus.PROCESSING) {
-      await this.restoreStockForFailedPayment(id);
-    }
-
-    return order;
-  }
-
-  /**
-   * Bulk update orders
-   */
-  async bulkUpdateOrders(
-    orderIds: string[],
-    updateData: { status?: OrderStatus; note?: string },
-  ): Promise<{ updated: number; failed: string[] }> {
-    const failed: string[] = [];
-    let updated = 0;
-
-    for (const orderId of orderIds) {
-      try {
-        const order = await this.findOneForAdmin(orderId);
-
-        if (updateData.status) {
-          order.status = updateData.status;
-        }
-
-        if (updateData.note) {
-          order.note = order.note
-            ? `${order.note}\n\n${updateData.note}`
-            : updateData.note;
-        }
-
-        await this.orderRepository.save(order);
-        updated++;
-      } catch (error) {
-        this.logger.error(`Failed to update order ${orderId}:`, error);
-        failed.push(orderId);
-      }
-    }
-
-    return { updated, failed };
-  }
-  async createOrder(createOrderDto: CreateOrderDto) {
-    try {
-      this.logger.log('Creating order:', createOrderDto);
-
-      // Validate order items and check stock
-      await this.orderValidationService.validateOrderItems(
-        createOrderDto.items,
-      );
-
-      // Validate voucher if provided
-      let appliedVoucher: Voucher | null = null;
-      if (createOrderDto.voucherId) {
-        const voucherValidation =
-          await this.orderValidationService.validateVoucher(
-            createOrderDto.voucherId,
-            createOrderDto.subTotal,
-            createOrderDto.userId,
-          );
-        if (!voucherValidation.isValid) {
-          throw new BadRequestException(
-            `Voucher validation failed: ${voucherValidation.error}`,
-          );
-        }
-
-        appliedVoucher = voucherValidation.voucher || null;
-      }
-
-      // Generate order number
-      const orderNumber = this.orderManagementService.generateOrderNumber(); // Create order entity
-      const orderData: Partial<Order> = {
-        orderNumber,
-        user: createOrderDto.userId
-          ? ({ id: createOrderDto.userId } as User)
-          : undefined,
-
-        // Customer information
-        customerName: createOrderDto.customerName,
-        customerEmail: createOrderDto.customerEmail,
-        customerPhone: createOrderDto.customerPhone, // Simplified shipping - store as single address field
-        shippingAddress: createOrderDto.shippingAddress, // Order details
-        note: createOrderDto.note || '',
-        subTotal: createOrderDto.subTotal,
-        shippingFee: createOrderDto.shippingFee || 0,
-        discount: createOrderDto.discount || 0,
-        totalPrice: createOrderDto.totalPrice, // Status
-        status: OrderStatus.PENDING,
-        isPaid: false, // Voucher
-        voucher: appliedVoucher || undefined,
-      };
-
-      const order = this.orderRepository.create(orderData);
-      const savedOrder = await this.orderRepository.save(order);
-
-      // Note: Order items will be created when payment is processed// If voucher was applied, increment its usage
-      if (appliedVoucher && createOrderDto.voucherId) {
-        await this.vouchersService.incrementUsage(createOrderDto.voucherId);
-      }
-
-      this.logger.log(`Order created successfully: ${savedOrder.orderNumber}`);
-      return savedOrder;
-    } catch (error) {
-      this.logger.error('Failed to create order:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Reserve stock for order items temporarily to prevent overselling
-   * This should be called during order creation to lock inventory
-   */
-  async reserveStockForOrder(items: OrderItemDto[]): Promise<void> {
-    this.logger.log('Reserving stock for order items');
-
-    for (const item of items) {
-      try {
-        // Check if stock is available and reserve it atomically
-        const result = await this.variantRepository
-          .createQueryBuilder()
-          .update('ProductVariant')
-          .set({
-            stockQuantity: () => `stock_quantity - ${item.quantity}`,
-            reservedQuantity: () =>
-              `COALESCE(reserved_quantity, 0) + ${item.quantity}`,
-          })
-          .where('id = :variantId', { variantId: item.variantId })
-          .andWhere('stock_quantity >= :quantity', { quantity: item.quantity })
-          .execute();
-
-        if (result.affected === 0) {
-          // Get current stock for error message
-          const variant = await this.variantRepository.findOne({
-            where: { id: item.variantId },
-            relations: ['product'],
-          });
-
-          const productName = variant?.product?.name || 'Unknown Product';
-          throw new BadRequestException(
-            `Insufficient stock for "${productName}". Available: ${variant?.stockQuantity || 0}, Requested: ${item.quantity}`,
-          );
-        }
-      } catch (error) {
-        // If stock reservation fails, rollback any previously reserved items
-        await this.rollbackStockReservation(
-          items.slice(0, items.indexOf(item)),
-        );
-        throw error;
-      }
-    }
-  }
-
-  /**
-   * Rollback stock reservation in case of failure
-   */ private async rollbackStockReservation(
-    items: OrderItemDto[],
-  ): Promise<void> {
-    this.logger.warn('Rolling back stock reservations due to failure');
-
-    for (const item of items) {
-      await this.variantRepository
-        .createQueryBuilder()
-        .update('ProductVariant')
-        .set({
-          stockQuantity: () => `stock_quantity + ${item.quantity}`,
-          reservedQuantity: () =>
-            `GREATEST(COALESCE(reserved_quantity, 0) - ${item.quantity}, 0)`,
-        })
-        .where('id = :variantId', { variantId: item.variantId })
-        .execute();
-    }
-  }
-
-  /**
-   * Confirm stock reduction after successful payment
-   */
-  async confirmStockReduction(orderId: string): Promise<void> {
-    this.logger.log(`Confirming stock reduction for order ${orderId}`);
-
-    const order = await this.orderRepository.findOne({
-      where: { id: orderId },
-      relations: ['items', 'items.variant'],
     });
 
-    if (!order?.items) {
-      throw new NotFoundException(`Order ${orderId} not found or has no items`);
-    }
-
-    for (const item of order.items) {
-      // Remove from reserved quantity (stock was already deducted during reservation)
-      await this.variantRepository
-        .createQueryBuilder()
-        .update('ProductVariant')
-        .set({
-          reservedQuantity: () =>
-            `GREATEST(COALESCE(reserved_quantity, 0) - ${item.quantity}, 0)`,
-        })
-        .where('id = :variantId', { variantId: item.variant.id })
-        .execute();
-    }
-  }
-
-  /**
-   * Release reserved stock if payment fails or order is cancelled
-   */
-  async releaseReservedStock(orderId: string): Promise<void> {
-    this.logger.log(`Releasing reserved stock for order ${orderId}`);
-
-    const order = await this.orderRepository.findOne({
-      where: { id: orderId },
-      relations: ['items', 'items.variant'],
-    });
-
-    if (!order?.items) {
-      throw new NotFoundException(`Order ${orderId} not found or has no items`);
-    }
-
-    for (const item of order.items) {
-      // Restore stock and remove from reserved
-      await this.variantRepository
-        .createQueryBuilder()
-        .update('ProductVariant')
-        .set({
-          stockQuantity: () => `stock_quantity + ${item.quantity}`,
-          reservedQuantity: () =>
-            `GREATEST(COALESCE(reserved_quantity, 0) - ${item.quantity}, 0)`,
-        })
-        .where('id = :variantId', { variantId: item.variant.id })
-        .execute();
-    }
+    const sequence = String(count + 1).padStart(4, '0');
+    return `ORD${year}${month}${day}${sequence}`;
   }
 }

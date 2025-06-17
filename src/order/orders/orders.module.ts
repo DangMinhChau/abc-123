@@ -1,20 +1,18 @@
-import { Module } from '@nestjs/common';
-import { OrdersService } from './orders.service';
-import { OrdersController } from './orders.controller';
-import { AdminOrdersController } from './admin/admin-orders.controller';
-import { OrderManagementService } from './services/order-management.service';
-import { OrderValidationService } from './services/order-validation.service';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Order } from 'src/order/orders/entities/order.entity';
-import { OrderItem } from 'src/order/order-items/entities/order-item.entity';
-import { Payment } from 'src/order/payments/entities/payment.entity';
-import { Shipping } from 'src/order/shippings/entities/shipping.entity';
-import { ProductVariant } from 'src/product/variants/entities/variant.entity';
-import { ProductsModule } from 'src/product/products/products.module';
-import { ShippingModule } from '../shippings/shipping.module';
+import { OrdersController } from './orders.controller';
+import { OrdersService } from './orders.service';
+import { Order } from './entities/order.entity';
+import { OrderItem } from '../order-items/entities/order-item.entity';
+import { Payment } from '../payments/entities/payment.entity';
+import { Shipping } from '../shippings/entities/shipping.entity';
 import { OrderItemsModule } from '../order-items/order-items.module';
-import { NotificationsModule } from '../../notification/notifications/notifications.module';
-import { VouchersModule } from 'src/promotion/vouchers/vouchers.module';
+import { PaymentsModule } from '../payments/payments.module';
+import { ShippingModule } from '../shippings/shipping.module';
+import { User } from 'src/user/users/entities/user.entity';
+import { Voucher } from 'src/promotion/vouchers/entities/voucher.entity';
+import { ProductVariant } from 'src/product/variants/entities/variant.entity';
+import { Product } from 'src/product/products/entities/product.entity';
 
 @Module({
   imports: [
@@ -23,16 +21,17 @@ import { VouchersModule } from 'src/promotion/vouchers/vouchers.module';
       OrderItem,
       Payment,
       Shipping,
+      User,
+      Voucher,
       ProductVariant,
+      Product,
     ]),
-    ProductsModule,
-    ShippingModule,
     OrderItemsModule,
-    NotificationsModule,
-    VouchersModule,
+    forwardRef(() => PaymentsModule),
+    ShippingModule,
   ],
-  controllers: [OrdersController, AdminOrdersController],
-  providers: [OrdersService, OrderManagementService, OrderValidationService],
-  exports: [OrdersService, OrderManagementService, OrderValidationService],
+  controllers: [OrdersController],
+  providers: [OrdersService],
+  exports: [OrdersService],
 })
 export class OrdersModule {}
