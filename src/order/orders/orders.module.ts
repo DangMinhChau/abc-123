@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
+import { AdminOrdersController } from './admin/admin-orders.controller';
+import { OrderManagementService } from './services/order-management.service';
+import { OrderValidationService } from './services/order-validation.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Order } from 'src/order/orders/entities/order.entity';
 import { OrderItem } from 'src/order/order-items/entities/order-item.entity';
@@ -28,8 +31,8 @@ import { VouchersModule } from 'src/promotion/vouchers/vouchers.module';
     NotificationsModule,
     VouchersModule,
   ],
-  controllers: [OrdersController],
-  providers: [OrdersService],
-  exports: [OrdersService],
+  controllers: [OrdersController, AdminOrdersController],
+  providers: [OrdersService, OrderManagementService, OrderValidationService],
+  exports: [OrdersService, OrderManagementService, OrderValidationService],
 })
 export class OrdersModule {}

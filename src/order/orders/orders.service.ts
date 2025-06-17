@@ -6,9 +6,9 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CreateSimpleOrderDto } from './dto/create-simple-order.dto';
+import { CreateOrderDto } from './dto/requests/create-order.dto';
+import { UpdateOrderDto } from './dto/requests/update-order.dto';
 import { OrderItemDto } from './dto/shared/order-item.dto';
-import { UpdateOrderDto } from './dto/update-order.dto';
 import { Order } from './entities/order.entity';
 import { OrderStatus } from 'src/common/constants/order-status.enum';
 import { PaymentStatus } from 'src/common/constants/payment-status.enum';
@@ -17,6 +17,8 @@ import { User } from 'src/user/users/entities/user.entity';
 import { VouchersService } from 'src/promotion/vouchers/vouchers.service';
 import { Voucher } from 'src/promotion/vouchers/entities/voucher.entity';
 import { ProductVariant } from 'src/product/variants/entities/variant.entity';
+import { OrderManagementService } from './services/order-management.service';
+import { OrderValidationService } from './services/order-validation.service';
 
 @Injectable()
 export class OrdersService {
@@ -28,57 +30,9 @@ export class OrdersService {
     private variantRepository: Repository<ProductVariant>,
     private readonly productsService: ProductsService,
     private readonly vouchersService: VouchersService,
+    private readonly orderManagementService: OrderManagementService,
+    private readonly orderValidationService: OrderValidationService,
   ) {}
-
-  /**
-   * Validate all order items for availability and correct pricing
-   */
-  private async validateOrderItems(items: OrderItemDto[]): Promise<void> {
-    for (const item of items) {
-      // Get product info from variant ID
-      const productData = await this.productsService.getProductFromVariant(
-        item.variantId,
-      ); // Check availability
-      const availability = await this.productsService.checkProductAvailability(
-        productData.product.id,
-        item.variantId,
-        item.quantity,
-      );
-
-      if (!availability.available) {
-        throw new BadRequestException(
-          `Product "${productData.product.name}" is not available. ${availability.message}`,
-        );
-      }
-
-      // Validate price (optional - ensures frontend hasn't been tampered with)
-      if (Math.abs(item.unitPrice - productData.finalPrice) > 0.01) {
-        throw new BadRequestException(
-          `Price mismatch for product "${productData.product.name}". Expected: ${productData.finalPrice}, Received: ${item.unitPrice}`,
-        );
-      }
-    }
-  }
-
-  /**
-   * Update stock quantities for all order items
-   */ private async updateStockForOrderItems(
-    items: OrderItemDto[],
-  ): Promise<void> {
-    for (const item of items) {
-      // Get product info from variant
-      const productData = await this.productsService.getProductFromVariant(
-        item.variantId,
-      );
-
-      await this.productsService.updateProductStock(
-        productData.product.id,
-        item.variantId,
-        item.quantity,
-      );
-    }
-  }
-
   async findAll(
     page: number = 1,
     limit: number = 10,
@@ -158,9 +112,9 @@ export class OrdersService {
       order.note = notes;
     }
 
-    return await this.orderRepository.save(order);
-  }
-  /**
+    // Use the management service to handle status updates properly
+    return await this.orderManagementService.updateOrderStatus(id, status);
+  } /**
    * Update payment status of an order (internal method for payment processing)
    * @param id Order ID
    * @param isPaid Payment status
@@ -172,18 +126,8 @@ export class OrdersService {
     isPaid: boolean,
     paidAt?: Date,
   ): Promise<Order> {
-    const order = await this.findOne(id);
-
-    order.isPaid = isPaid;
-    if (isPaid && !paidAt) {
-      order.paidAt = new Date();
-    } else if (paidAt) {
-      order.paidAt = paidAt;
-    } else if (!isPaid) {
-      (order.paidAt as any) = null; // Reset payment timestamp when payment is cancelled
-    }
-
-    return await this.orderRepository.save(order);
+    await this.orderManagementService.updatePaymentStatus(id, isPaid);
+    return await this.findOne(id);
   }
 
   /**
@@ -229,15 +173,7 @@ export class OrdersService {
       // For now, we'll just log it as this method doesn't exist
       console.log(`Refund needed for payment ${order.payment.id}`);
     }
-
     return await this.orderRepository.save(order);
-  }
-  private generateOrderNumber(): string {
-    const timestamp = Date.now().toString();
-    const random = Math.floor(Math.random() * 1000)
-      .toString()
-      .padStart(3, '0');
-    return `ORD${timestamp.slice(-8)}${random}`;
   }
 
   async remove(id: string) {
@@ -784,21 +720,24 @@ export class OrdersService {
 
     return { updated, failed };
   }
-
-  async createSimpleOrder(createOrderDto: CreateSimpleOrderDto) {
+  async createOrder(createOrderDto: CreateOrderDto) {
     try {
-      this.logger.log('Creating simple order:', createOrderDto);
+      this.logger.log('Creating order:', createOrderDto);
 
       // Validate order items and check stock
-      await this.validateOrderItems(createOrderDto.items);
+      await this.orderValidationService.validateOrderItems(
+        createOrderDto.items,
+      );
 
       // Validate voucher if provided
       let appliedVoucher: Voucher | null = null;
       if (createOrderDto.voucherId) {
-        const voucherValidation = await this.vouchersService.validateVoucher(
-          createOrderDto.voucherId,
-          createOrderDto.subTotal,
-        );
+        const voucherValidation =
+          await this.orderValidationService.validateVoucher(
+            createOrderDto.voucherId,
+            createOrderDto.subTotal,
+            createOrderDto.userId,
+          );
         if (!voucherValidation.isValid) {
           throw new BadRequestException(
             `Voucher validation failed: ${voucherValidation.error}`,
@@ -809,7 +748,7 @@ export class OrdersService {
       }
 
       // Generate order number
-      const orderNumber = this.generateOrderNumber(); // Create order entity
+      const orderNumber = this.orderManagementService.generateOrderNumber(); // Create order entity
       const orderData: Partial<Order> = {
         orderNumber,
         user: createOrderDto.userId
@@ -839,12 +778,10 @@ export class OrdersService {
         await this.vouchersService.incrementUsage(createOrderDto.voucherId);
       }
 
-      this.logger.log(
-        `Simple order created successfully: ${savedOrder.orderNumber}`,
-      );
+      this.logger.log(`Order created successfully: ${savedOrder.orderNumber}`);
       return savedOrder;
     } catch (error) {
-      this.logger.error('Failed to create simple order:', error);
+      this.logger.error('Failed to create order:', error);
       throw error;
     }
   }
