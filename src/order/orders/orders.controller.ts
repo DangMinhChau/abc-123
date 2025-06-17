@@ -255,12 +255,11 @@ export class OrdersController {
       };
     }
   }
-
   @Post('test-order-creation')
   @UseGuards(OptionalJwtAuthGuard)
   @ApiOperation({ summary: 'Test order creation (debug)' })
   async testOrderCreation(
-    @Body() createOrderDto: CreateOrderDto,
+    @Body() createOrderDto: any, // Bypass validation to debug
     @GetUser() user: User | null,
   ): Promise<any> {
     try {

@@ -10,7 +10,7 @@ import {
   ValidateNested,
   IsEnum,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { CreateOrderItemDto } from './create-order-item.dto';
 import { PaymentMethod } from '../../../../common/constants/payment-method.enum';
 
@@ -61,12 +61,13 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   note?: string;
-
   @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsUUID()
   userId?: string;
 
   @IsOptional()
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsUUID()
   voucherId?: string;
 
