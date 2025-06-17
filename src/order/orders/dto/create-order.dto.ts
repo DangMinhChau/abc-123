@@ -1,21 +1,15 @@
-import { IsNotEmpty, IsString, IsNumber, IsOptional, IsEmail, IsArray, ValidateNested, Min } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsEmail,
+  IsArray,
+  ValidateNested,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
-
-export class OrderItemDto {
-  @IsNotEmpty()
-  @IsString()
-  variantId: string;
-
-  @IsNotEmpty()
-  @IsNumber()
-  @Min(1)
-  quantity: number;
-
-  @IsNotEmpty()
-  @IsNumber()
-  @Min(0)
-  unitPrice: number;
-}
+import { OrderItemDto } from './shared/order-item.dto';
 
 export class CreateOrderDto {
   // Customer info (for both guest and user)

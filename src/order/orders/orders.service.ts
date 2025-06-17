@@ -6,8 +6,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CreateOrderDto, CreateOrderItemDto } from './dto/create-order.dto';
 import { CreateSimpleOrderDto } from './dto/create-simple-order.dto';
+import { OrderItemDto } from './dto/shared/order-item.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { Order } from './entities/order.entity';
 import { OrderStatus } from 'src/common/constants/order-status.enum';
@@ -29,86 +29,11 @@ export class OrdersService {
     private readonly productsService: ProductsService,
     private readonly vouchersService: VouchersService,
   ) {}
-  async create(createOrderDto: CreateOrderDto) {
-    try {
-      // Validate all order items and check availability
-      await this.validateOrderItems(createOrderDto.items); // Validate and apply voucher if provided
-      let appliedVoucher: Voucher | null = null;
-      if (createOrderDto.voucherId) {
-        const voucherValidation = await this.vouchersService.validateVoucher(
-          createOrderDto.voucherId,
-          createOrderDto.subTotal,
-        );
 
-        if (!voucherValidation.isValid) {
-          throw new BadRequestException(
-            `Voucher validation failed: ${voucherValidation.error}`,
-          );
-        }
-
-        if (!voucherValidation.voucher) {
-          throw new BadRequestException('Voucher not found after validation');
-        }
-
-        appliedVoucher = voucherValidation.voucher;
-
-        // Verify discount amount matches
-        const expectedDiscount = appliedVoucher.calculateDiscount(
-          createOrderDto.subTotal,
-        );
-        const actualDiscount = createOrderDto.discount || 0;
-        if (Math.abs(actualDiscount - expectedDiscount) > 0.01) {
-          throw new BadRequestException(
-            `Discount amount mismatch. Expected: ${expectedDiscount}, Received: ${actualDiscount}`,
-          );
-        }
-      } // Generate unique order number
-      const orderNumber = this.generateOrderNumber(); // Destructure to separate items from order data (items stored in order, stock managed on payment)
-      const {
-        items: _,
-        userId,
-        voucherId: __,
-        ...orderFields
-      } = createOrderDto;
-
-      // Create order with optional user and voucher relations
-      const orderData: Partial<Order> = {
-        ...orderFields,
-        orderNumber,
-        status: OrderStatus.PENDING,
-      };
-
-      // Only set user relation if userId is provided (authenticated user)
-      if (userId) {
-        orderData.user = { id: userId } as User;
-      } // Set voucher relation if voucher is applied
-      if (appliedVoucher) {
-        orderData.voucher = appliedVoucher;
-      }
-
-      const order = this.orderRepository.create(orderData);
-      const savedOrder = await this.orderRepository.save(order);
-
-      // NOTE: Stock quantities will be updated only after successful payment
-      // This ensures stock is not lost for failed/abandoned payments
-
-      // If voucher was used, increment its usage count
-      if (appliedVoucher && createOrderDto.voucherId) {
-        await this.vouchersService.incrementUsage(createOrderDto.voucherId);
-      }
-
-      // Simply return the order - payment handling should be done separately via PaymentsController
-      return savedOrder;
-    } catch (error) {
-      throw new BadRequestException(
-        'Failed to create order: ' +
-          (error instanceof Error ? error.message : 'Unknown error'),
-      );
-    }
-  } /**
+  /**
    * Validate all order items for availability and correct pricing
    */
-  private async validateOrderItems(items: CreateOrderItemDto[]): Promise<void> {
+  private async validateOrderItems(items: OrderItemDto[]): Promise<void> {
     for (const item of items) {
       // Get product info from variant ID
       const productData = await this.productsService.getProductFromVariant(
@@ -137,9 +62,8 @@ export class OrdersService {
 
   /**
    * Update stock quantities for all order items
-   */
-  private async updateStockForOrderItems(
-    items: CreateOrderItemDto[],
+   */ private async updateStockForOrderItems(
+    items: OrderItemDto[],
   ): Promise<void> {
     for (const item of items) {
       // Get product info from variant
@@ -875,72 +799,44 @@ export class OrdersService {
           createOrderDto.voucherId,
           createOrderDto.subTotal,
         );
-
         if (!voucherValidation.isValid) {
           throw new BadRequestException(
             `Voucher validation failed: ${voucherValidation.error}`,
           );
         }
 
-        appliedVoucher = voucherValidation.voucher;
+        appliedVoucher = voucherValidation.voucher || null;
       }
 
       // Generate order number
-      const orderNumber = this.generateOrderNumber();
-
-      // Create order entity
-      const order = this.orderRepository.create({
+      const orderNumber = this.generateOrderNumber(); // Create order entity
+      const orderData: Partial<Order> = {
         orderNumber,
-        user: createOrderDto.userId ? { id: createOrderDto.userId } : null,
+        user: createOrderDto.userId
+          ? ({ id: createOrderDto.userId } as User)
+          : undefined,
 
         // Customer information
         customerName: createOrderDto.customerName,
         customerEmail: createOrderDto.customerEmail,
-        customerPhone: createOrderDto.customerPhone,
-
-        // Simplified shipping - store as single address field
-        recipientName: createOrderDto.customerName,
-        recipientPhone: createOrderDto.customerPhone,
-        streetAddress: createOrderDto.shippingAddress,
-        ward: 'N/A',
-        district: 'N/A',
-        province: 'N/A',
-        wardCode: '00000',
-        districtId: 0,
-        provinceId: 0,
-
-        // Order details
-        notes: createOrderDto.note || '',
+        customerPhone: createOrderDto.customerPhone, // Simplified shipping - store as single address field
+        shippingAddress: createOrderDto.shippingAddress, // Order details
+        note: createOrderDto.note || '',
         subTotal: createOrderDto.subTotal,
         shippingFee: createOrderDto.shippingFee || 0,
         discount: createOrderDto.discount || 0,
-        totalPrice: createOrderDto.totalPrice,
-
-        // Status
+        totalPrice: createOrderDto.totalPrice, // Status
         status: OrderStatus.PENDING,
-        paymentStatus: PaymentStatus.UNPAID,
-        isPaid: false,
+        isPaid: false, // Voucher
+        voucher: appliedVoucher || undefined,
+      };
 
-        // Voucher
-        voucher: appliedVoucher,
-
-        // Order items
-        items: createOrderDto.items.map((item) => ({
-          variant: { id: item.variantId },
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          totalPrice: item.unitPrice * item.quantity,
-        })),
-      });
-
+      const order = this.orderRepository.create(orderData);
       const savedOrder = await this.orderRepository.save(order);
 
-      // If voucher was applied, mark it as used
-      if (appliedVoucher) {
-        await this.vouchersService.markVoucherAsUsed(
-          appliedVoucher.id,
-          savedOrder.id,
-        );
+      // Note: Order items will be created when payment is processed// If voucher was applied, increment its usage
+      if (appliedVoucher && createOrderDto.voucherId) {
+        await this.vouchersService.incrementUsage(createOrderDto.voucherId);
       }
 
       this.logger.log(
@@ -957,7 +853,7 @@ export class OrdersService {
    * Reserve stock for order items temporarily to prevent overselling
    * This should be called during order creation to lock inventory
    */
-  async reserveStockForOrder(items: CreateOrderItemDto[]): Promise<void> {
+  async reserveStockForOrder(items: OrderItemDto[]): Promise<void> {
     this.logger.log('Reserving stock for order items');
 
     for (const item of items) {
@@ -999,9 +895,8 @@ export class OrdersService {
 
   /**
    * Rollback stock reservation in case of failure
-   */
-  private async rollbackStockReservation(
-    items: CreateOrderItemDto[],
+   */ private async rollbackStockReservation(
+    items: OrderItemDto[],
   ): Promise<void> {
     this.logger.warn('Rolling back stock reservations due to failure');
 
