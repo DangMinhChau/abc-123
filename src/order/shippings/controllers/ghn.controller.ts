@@ -97,16 +97,14 @@ export class GhnController {
             error: 'INVALID_WEIGHT',
           },
         };
-      }
-
-      // Provide default values for required fields
+      } // Provide default values for required fields (mock values for products without physical dimensions)
       const params = {
         to_district_id: calculateShippingDto.to_district_id,
         to_ward_code: calculateShippingDto.to_ward_code,
-        weight: calculateShippingDto.weight,
-        length: calculateShippingDto.length || 20, // Default 20cm
-        width: calculateShippingDto.width || 15, // Default 15cm
-        height: calculateShippingDto.height || 10, // Default 10cm
+        weight: calculateShippingDto.weight || 500, // Default 500g (reasonable for clothing)
+        length: calculateShippingDto.length || 30, // Default 30cm
+        width: calculateShippingDto.width || 20, // Default 20cm
+        height: calculateShippingDto.height || 5, // Default 5cm (folded clothing)
         service_id: calculateShippingDto.service_id, // Optional service_id
       };
 
@@ -140,16 +138,14 @@ export class GhnController {
   @ApiOperation({ summary: 'Test GHN configuration' })
   async testGhnConfiguration(): Promise<BaseResponseDto<any>> {
     try {
-      console.log('Testing GHN configuration...');
-
-      // Test with sample data for Ho Chi Minh City
+      console.log('Testing GHN configuration...'); // Test with sample data for Ho Chi Minh City (realistic values for clothing)
       const testParams = {
         to_district_id: 1442, // Quan 1, TPHCM
         to_ward_code: '21211', // Phuong Ben Nghe
-        weight: 500, // 500g
-        length: 20,
-        width: 15,
-        height: 10,
+        weight: 500, // 500g (typical for a shirt)
+        length: 30, // 30cm
+        width: 20, // 20cm
+        height: 5, // 5cm (folded clothing)
       };
 
       console.log('Test params:', testParams);
@@ -167,10 +163,12 @@ export class GhnController {
       };
     } catch (error) {
       console.error('GHN test error:', error);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
       return {
         message: 'GHN test failed',
         data: {
-          error: error.message || 'Unknown error',
+          error: errorMessage,
         },
         meta: {
           timestamp: new Date().toISOString(),

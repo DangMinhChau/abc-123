@@ -195,6 +195,10 @@ export class GhnService {
     service_id?: number;
   }): Promise<GHNShippingFee> {
     try {
+      console.log('=== GHN calculateShippingFee called ===');
+      console.log('Call stack:', new Error().stack);
+      console.log('Original params:', params);
+
       // Validate configuration
       if (!this.ghnToken || !this.shopId) {
         throw new HttpException(
@@ -202,6 +206,16 @@ export class GhnService {
           HttpStatus.SERVICE_UNAVAILABLE,
         );
       }
+
+      // Validate and set default values for weight and dimensions
+      // GHN requires: weight in grams (min: 1g, max: 30000g), dimensions in cm
+      const weight = Math.max(50, Math.min(params.weight || 500, 30000)); // Default 500g, min 50g, max 30kg
+      const length = Math.max(1, Math.min(params.length || 20, 200)); // Default 20cm, min 1cm, max 200cm
+      const width = Math.max(1, Math.min(params.width || 15, 200)); // Default 15cm, min 1cm, max 200cm
+      const height = Math.max(1, Math.min(params.height || 10, 200)); // Default 10cm, min 1cm, max 200cm
+
+      console.log('Original params:', params);
+      console.log('Validated dimensions:', { weight, length, width, height });
 
       let serviceId = params.service_id;
 
@@ -232,10 +246,10 @@ export class GhnService {
         from_district_id: Number(this.fromDistrictId),
         to_district_id: Number(params.to_district_id),
         to_ward_code: String(params.to_ward_code),
-        height: Number(params.height),
-        length: Number(params.length),
-        weight: Number(params.weight),
-        width: Number(params.width),
+        height: height,
+        length: length,
+        weight: weight,
+        width: width,
       });
 
       const requestBody = {
@@ -243,10 +257,10 @@ export class GhnService {
         from_district_id: Number(this.fromDistrictId),
         to_district_id: Number(params.to_district_id),
         to_ward_code: String(params.to_ward_code),
-        height: Number(params.height),
-        length: Number(params.length),
-        weight: Number(params.weight),
-        width: Number(params.width),
+        height: height,
+        length: length,
+        weight: weight,
+        width: width,
       };
 
       const response = await fetch(`${this.ghnApiUrl}/v2/shipping-order/fee`, {
