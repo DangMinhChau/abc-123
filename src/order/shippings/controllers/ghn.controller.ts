@@ -61,6 +61,7 @@ export class GhnController {
       length?: number;
       width?: number;
       height?: number;
+      service_id?: number;
     },
   ): Promise<BaseResponseDto<any>> {
     try {
@@ -106,6 +107,7 @@ export class GhnController {
         length: calculateShippingDto.length || 20, // Default 20cm
         width: calculateShippingDto.width || 15, // Default 15cm
         height: calculateShippingDto.height || 10, // Default 10cm
+        service_id: calculateShippingDto.service_id, // Optional service_id
       };
 
       console.log('Calculating shipping fee with params:', params);
@@ -120,8 +122,12 @@ export class GhnController {
       };
     } catch (error) {
       console.error('Shipping fee calculation error:', error);
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : 'Failed to calculate shipping fee';
       return {
-        message: error.message || 'Failed to calculate shipping fee',
+        message: errorMessage,
         data: null,
         meta: {
           timestamp: new Date().toISOString(),
@@ -173,21 +179,34 @@ export class GhnController {
       };
     }
   }
-
   @Get('services')
   @ApiOperation({ summary: 'Get available services' })
   async getAvailableServices(
     @Query('to_district') toDistrictId: number,
   ): Promise<BaseResponseDto<any>> {
-    const data = await this.ghnService.getAvailableServices({
-      to_district: toDistrictId,
-    });
-    return {
-      message: 'Services retrieved successfully',
-      data,
-      meta: {
-        timestamp: new Date().toISOString(),
-      },
-    };
+    try {
+      const data = await this.ghnService.getAvailableServices({
+        to_district: toDistrictId,
+      });
+      return {
+        message: 'Services retrieved successfully',
+        data,
+        meta: {
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error) {
+      console.error('Get services error:', error);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to get services';
+      return {
+        message: errorMessage,
+        data: null,
+        meta: {
+          timestamp: new Date().toISOString(),
+          error: 'GET_SERVICES_ERROR',
+        },
+      };
+    }
   }
 }

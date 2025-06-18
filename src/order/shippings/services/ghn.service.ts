@@ -192,7 +192,7 @@ export class GhnService {
     length: number;
     width: number;
     height: number;
-    service_type_id?: number;
+    service_id?: number;
   }): Promise<GHNShippingFee> {
     try {
       // Validate configuration
@@ -201,9 +201,34 @@ export class GhnService {
           'GHN configuration is missing (token or shop ID)',
           HttpStatus.SERVICE_UNAVAILABLE,
         );
-      } // Log request params for debugging
+      }
+
+      let serviceId = params.service_id;
+
+      // If no service_id provided, get available services and use the first one
+      if (!serviceId) {
+        console.log('No service_id provided, fetching available services...');
+        const availableServices = await this.getAvailableServices({
+          to_district: params.to_district_id,
+        });
+
+        if (availableServices.length === 0) {
+          throw new HttpException(
+            'No shipping services available for this destination',
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+
+        // Use the first available service (typically the standard service)
+        serviceId = availableServices[0].service_id;
+        console.log(
+          `Using service_id: ${serviceId} (${availableServices[0].name})`,
+        );
+      }
+
+      // Log request params for debugging
       console.log('GHN Shipping Fee Request Params:', {
-        service_type_id: params.service_type_id || 2,
+        service_id: serviceId,
         from_district_id: Number(this.fromDistrictId),
         to_district_id: Number(params.to_district_id),
         to_ward_code: String(params.to_ward_code),
@@ -212,11 +237,12 @@ export class GhnService {
         weight: Number(params.weight),
         width: Number(params.width),
       });
+
       const requestBody = {
-        service_type_id: params.service_type_id || 2, // Standard service
-        from_district_id: Number(this.fromDistrictId), // Ensure it's a number
-        to_district_id: Number(params.to_district_id), // Ensure it's a number
-        to_ward_code: String(params.to_ward_code), // Ensure it's a string
+        service_id: serviceId, // Use specific service_id instead of service_type_id
+        from_district_id: Number(this.fromDistrictId),
+        to_district_id: Number(params.to_district_id),
+        to_ward_code: String(params.to_ward_code),
         height: Number(params.height),
         length: Number(params.length),
         weight: Number(params.weight),
